@@ -107,9 +107,9 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
     </div>
   </div>
   <div class="header-stats">
-    <div class="stat"><b id="totalProfiles">0</b><span>Tong profile</span></div>
-    <div class="stat"><b id="runningProfiles" style="color:#10b981">0</b><span>Dang chay</span></div>
-    <div class="stat"><b style="color:#46c8ff">∞</b><span>Unlimited</span></div>
+    <div class="stat"><b id="totalProfiles">0</b><span>Tổng profile</span></div>
+    <div class="stat"><b id="runningCards" style="color:#f59e0b">0</b><span>Tổng thẻ đang chạy</span></div>
+    <div class="stat"><b id="successCards" style="color:#10b981">0</b><span>Thành công</span></div>
   </div>
 </div>
 
@@ -339,7 +339,6 @@ async function loadProfiles(){
     allProfiles = await res.json();
     renderProfiles(allProfiles);
     document.getElementById("totalProfiles").textContent = allProfiles.length;
-    document.getElementById("runningProfiles").textContent = allProfiles.filter(p=>p.running).length;
   }catch(e){console.error(e);}
 }
 
@@ -609,9 +608,10 @@ async function addVideoForm(force_fId = null) {
     
     const html = `
       <div id="vform_${fId}" style="background:#151a27;border:1px solid #212a3d;border-radius:14px;padding:16px;position:relative;">
+        <div style="font-size:13px; font-weight:bold; color:#46c8ff; position:absolute; top:12px; left:16px;"># Thẻ ${fId}</div>
         <button class="btn btn-ghost" style="position:absolute;top:8px;right:8px;padding:4px 8px;color:#ef4444;height:auto;" onclick="document.getElementById('vform_${fId}').remove()" title="Đóng thẻ này">✕</button>
         
-        <div class="video-form-grid" style="display:grid;grid-template-columns:1fr 1fr 200px 120px 120px;gap:12px;align-items:end;margin-top:10px;">
+        <div class="video-form-grid" style="display:grid;grid-template-columns:1fr 1fr 200px 120px 120px;gap:12px;align-items:end;margin-top:24px;">
           <!-- Prompt -->
           <div class="form-group" style="margin:0;">
             <label>📝 Prompt mô tả video</label>
@@ -1174,6 +1174,30 @@ function keepAndCancel() {
     });
     saveUIState();
 }
+
+function updateStats() {
+    let running = 0;
+    let success = 0;
+    
+    const forms = document.querySelectorAll("[id^='vform_']");
+    forms.forEach(form => {
+        const fId = form.id.replace('vform_', '');
+        const btn = document.getElementById(`createVideoBtn_${fId}`);
+        const statusEmpty = document.getElementById(`vtask_empty_${fId}`);
+        if (btn && btn.disabled) {
+            running++;
+        }
+        if (statusEmpty && statusEmpty.style.display === "none") {
+            success++;
+        }
+    });
+    
+    const sEl = document.getElementById("successCards");
+    if(sEl) sEl.textContent = success;
+    const rEl = document.getElementById("runningCards");
+    if(rEl) rEl.textContent = running;
+}
+setInterval(updateStats, 2000);
 
 loadProfiles();
 setInterval(loadProfiles, 4000);
