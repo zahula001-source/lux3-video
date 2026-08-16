@@ -628,8 +628,57 @@ def _activate_canvas_spoof(context, ext_path):
         pass
 
 
+def _handle_auto_login(page, video_tasks, task_id):
+    if "auth.bfl.ai" in page.url:
+        if video_tasks and task_id:
+            video_tasks[task_id]["message"] = "Trang yêu cầu đăng nhập. Đang tự động điền mật khẩu..."
+        try:
+            page.wait_for_timeout(3000)
+            email = page.evaluate("""() => {
+                const el = document.querySelector('input[type="email"], input[name="email"], input[name="identifier"]');
+                if (el && el.value) return el.value;
+                const match = document.body.innerText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+                return match ? match[0] : null;
+            }""")
+            
+            if email:
+                pwd = email.split('@')[0] + '@H1'
+                
+                page.evaluate(f"""(pwd) => {{
+                    const pEl = document.querySelector('input[type="password"], input[name="password"]');
+                    if (pEl) {{
+                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        nativeSetter.call(pEl, pwd);
+                        pEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        pEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                }}""", pwd)
+                
+                page.wait_for_timeout(500)
+                
+                page.evaluate("""() => {
+                    const btns = document.querySelectorAll('button');
+                    for (let b of btns) {
+                        const t = (b.innerText || "").toLowerCase();
+                        if (t.includes('sign in') || t.includes('continue')) {
+                            b.click();
+                            break;
+                        }
+                    }
+                }""")
+                
+                try:
+                    page.wait_for_url("**/dashboard.bfl.ai/**", timeout=15000)
+                except: pass
+                
+                page.wait_for_timeout(3000)
+        except:
+            pass
+
 def _fill_form(page, context, ext_path, prompt, img1_path, img2_path, video_tasks, task_id, is_retry=False):
     """Điền prompt + upload ảnh vào bfl.ai. Trả về True nếu OK."""
+    _handle_auto_login(page, video_tasks, task_id)
+    
     # Đợi textarea
     try:
         page.wait_for_selector("textarea[placeholder*='Describe']", timeout=15000)
