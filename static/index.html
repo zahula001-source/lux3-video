@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Antidetect Unlimited V11 - Chrome Moi Hoan Toan</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family: 'Inter', sans-serif;}
+body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
+.header{background:#11151f;border-bottom:1px solid #1e2535;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#6d5dfc,#46c8ff);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;}
+.logo h1{font-size:18px;font-weight:700;}
+.logo span{color:#46c8ff}
+.header-stats{display:flex;gap:20px;font-size:13px;color:#9ca3af;}
+.stat b{color:#fff;font-size:16px;display:block}
+.main{max-width:1300px;margin:0 auto;padding:24px;}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.btn{border:none;cursor:pointer;padding:10px 18px;border-radius:10px;font-weight:600;font-size:13px;transition:0.2s;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:linear-gradient(135deg,#6d5dfc,#46c8ff);color:#fff;}
+.btn-primary:hover{transform:translateY(-1px);}
+.btn-ghost{background:#1a2030;color:#cbd5e1;border:1px solid #2a3449;}
+.btn-ghost:hover{background:#222c42;}
+.btn-sm{padding:6px 10px;font-size:11px;border-radius:8px;}
+.btn-success{background:#10b981;color:#fff;}
+.btn-danger{background:#ef4444;color:#fff;}
+.btn-warning{background:#f59e0b;color:#000;}
+.btn-purple{background:#8b5cf6;color:#fff;}
+.btn-blue{background:#3b82f6;color:#fff;}
+.search-box{background:#151a27;border:1px solid #242e44;border-radius:10px;padding:10px 14px;color:#fff;width:340px;outline:none;}
+.search-box:focus{border-color:#6d5dfc;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;}
+.card{background:#151a27;border:1px solid #212a3d;border-radius:16px;padding:16px;transition:0.2s;}
+.card.running{border-color:#10b981;box-shadow:0 0 0 1px rgba(16,185,129,0.2);}
+.card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.card-title{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;}
+.dot{width:8px;height:8px;border-radius:50%;background:#3f4553;}
+.dot.running{background:#10b981;box-shadow:0 0 8px #10b981;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.card-meta{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+.badge{font-size:10px;padding:4px 8px;border-radius:20px;background:#1e2535;border:1px solid #2a3650;color:#9fb0d0;}
+.badge.windows{background:rgba(59,130,246,0.15);color:#93c5fd;border-color:rgba(59,130,246,0.3);}
+.badge.macos{background:rgba(168,85,247,0.15);color:#d8b4fe;border-color:rgba(168,85,247,0.3);}
+.badge.chromium{background:rgba(70,200,255,0.15);color:#7dd3fc;border-color:rgba(70,200,255,0.3);}
+.badge.camoufox{background:rgba(255,115,0,0.15);color:#fb923c;border-color:rgba(255,115,0,0.3);}
+.card-proxy{font-size:11px;background:#101522;border:1px dashed #2a3449;border-radius:8px;padding:6px 10px;margin:6px 0;color:#94a3b8;word-break:break-all;}
+.card-proxy.has-proxy{border-color:#10b981;color:#6ee7b7;background:rgba(16,185,129,0.1);}
+.card-infos{display:flex;gap:12px;font-size:11px;color:#64748b;margin:6px 0;flex-wrap:wrap;}
+.card-actions{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;}
+.card-footer{margin-top:10px;padding-top:8px;border-top:1px solid #1e2535;font-size:10px;color:#64748b;display:flex;justify-content:space-between;}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-overlay.active{display:flex;}
+.modal{background:#151a27;border:1px solid #2a3650;border-radius:16px;width:100%;max-width:560px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.5);max-height:90vh;overflow-y:auto;}
+.modal.lg{max-width:700px;}
+.modal h2{font-size:18px;margin-bottom:16px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:11px;font-weight:600;color:#9ca3af;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;}
+.input, .select, .textarea{width:100%;background:#0f1420;border:1px solid #242e44;border-radius:10px;padding:10px 12px;color:#fff;font-size:13px;outline:none;}
+.input:focus, .select:focus, .textarea:focus{border-color:#6d5dfc;}
+.textarea{resize:vertical;min-height:80px;font-family:Consolas, monospace;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.hint{font-size:11px;color:#64748b;margin-top:4px;}
+.empty{text-align:center;padding:60px 20px;color:#64748b;}
+.tip{background:#0f1420;border:1px solid #1e2535;border-radius:10px;padding:12px;font-size:11px;color:#94a3b8;margin-top:12px;}
+.tip b{color:#46c8ff}
+/* TABS */
+.tabs-nav{display:flex;gap:4px;border-bottom:2px solid #1e2535;margin-bottom:20px;}
+.tab-btn{background:none;border:none;color:#6b7280;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:0.2s;}
+.tab-btn.active{color:#46c8ff;border-bottom-color:#46c8ff;}
+.tab-btn:hover{color:#cbd5e1;}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+/* VIDEO TAB */
+.video-layout{display:grid;grid-template-columns:1fr 340px;gap:24px;}
+.video-preview-box{background:#0d1117;border:2px dashed #2a3449;border-radius:16px;min-height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;}
+.video-preview-box video{width:100%;height:100%;object-fit:contain;border-radius:14px;}
+.video-preview-placeholder{text-align:center;color:#4b5563;}
+.video-preview-placeholder .icon{font-size:56px;margin-bottom:12px;}
+.video-control-panel{display:flex;flex-direction:column;gap:14px;}
+.img-upload-row{display:grid;grid-template-columns:1fr 24px 1fr;gap:8px;align-items:center;}
+.img-drop-zone{background:#0f1420;border:2px dashed #2a3449;border-radius:12px;height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:0.2s;position:relative;overflow:hidden;}
+.img-drop-zone:hover{border-color:#46c8ff;background:#111827;}
+.img-drop-zone img{width:100%;height:100%;object-fit:cover;border-radius:10px;}
+.img-drop-zone .dz-label{font-size:11px;color:#6b7280;text-align:center;pointer-events:none;}
+.status-bar{background:#0f1420;border:1px solid #1e2535;border-radius:10px;padding:10px 14px;font-size:12px;color:#9ca3af;min-height:44px;display:flex;align-items:center;gap:8px;}
+.status-bar.running{border-color:#f59e0b;color:#fcd34d;}
+.status-bar.done{border-color:#10b981;color:#6ee7b7;}
+.status-bar.error{border-color:#ef4444;color:#fca5a5;}
+.spinner{width:14px;height:14px;border:2px solid #4b5563;border-top-color:#46c8ff;border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">C</div>
+    <div>
+      <h1>Antidetect <span>V11 - Chrome Moi</span></h1>
+      <div style="font-size:11px;color:#6b7280;margin-top:2px;">Moi Chrome 1 IP rieng • Fingerprint moi hoan toan • Extension auto</div>
+    </div>
+  </div>
+  <div class="header-stats">
+    <div class="stat"><b id="totalProfiles">0</b><span>Tong profile</span></div>
+    <div class="stat"><b id="runningProfiles" style="color:#10b981">0</b><span>Dang chay</span></div>
+    <div class="stat"><b style="color:#46c8ff">∞</b><span>Unlimited</span></div>
+  </div>
+</div>
+
+<div class="main">
+  <div style="background:linear-gradient(135deg,#1e293b,#0f172a);border:1px solid #334155;border-radius:12px;padding:14px 18px;margin-bottom:18px;display:flex;gap:12px;align-items:center;">
+    <div style="font-size:24px;">💡</div>
+    <div style="font-size:12px;color:#cbd5e1;line-height:1.5;">
+      <b style="color:#10b981">Moi Chrome 1 IP:</b> Khi tao profile nhap proxy vd: <code>116.97.104.59:8080</code> hoac <code>ip:port:user:pass</code>
+    </div>
+  </div>
+
+  <!-- TAB NAVIGATION -->
+  <div class="tabs-nav" style="display:flex; justify-content:space-between; align-items:center;">
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button class="tab-btn active" id="tabBtnProfiles" onclick="switchTab('profiles')">🖥️ Profiles</button>
+      <button class="tab-btn" id="tabBtnVideo" onclick="switchTab('video')">🎬 Tạo Video (BFL.AI)</button>
+      <button id="addVideoBtn" onclick="addVideoForm()" style="display:none; align-items:center; justify-content:center; background:none; border:1px solid #10b981; color:#10b981; border-radius:6px; cursor:pointer; font-size:18px; line-height:1; width:28px; height:28px; transition:0.2s; padding:0;" onmouseover="this.style.background='#10b981';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#10b981'" title="Mở thẻ trống mới để điền">+</button>
+    </div>
+    
+    <div style="display:inline-flex; align-items:center; gap: 6px;">
+      <button class="btn btn-ghost" style="padding:4px 8px; font-size:12px; height:auto; border-radius:6px; border-color:#334155; background:#1e293b;" onclick="openStartupModal()">⚙️ Tabs Mặc Định</button>
+      
+      <div style="display:flex; align-items:center; gap:6px; border:1px solid #334155; padding: 4px 8px; border-radius: 6px; background: #1e293b;">
+         <input type="checkbox" id="globalHeadless" onchange="saveUIState()" style="cursor:pointer;">
+         <label for="globalHeadless" style="font-size:12px; color:#46c8ff; cursor:pointer; margin:0;" title="Chạy ẩn (Headless) giúp nhẹ máy nhưng vẫn đảm bảo tác vụ thành công">Chạy Ẩn Chrome</label>
+      </div>
+      
+      <div style="display:flex; align-items:center; gap:6px; border:1px solid #334155; padding: 4px 8px; border-radius: 6px; background: #1e293b; margin-right: 12px; cursor:pointer;" title="Bấm để chọn thư mục lưu (Để trống = lưu vào mục Downloads của máy)" onclick="selectFolder()">
+         <span style="font-size:14px;">📁</span>
+         <input type="text" id="globalVideoSavePath" placeholder="Thư mục lưu (Mặc định: Downloads)" oninput="saveUIState()" style="background:transparent; border:none; color:#e2e8f0; font-size:12px; width:170px; outline:none; pointer-events:none;">
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: PROFILES -->
+  <div id="tab-profiles" class="tab-content active">
+  <div class="toolbar">
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn btn-primary" onclick="openModal()">+ Tao Profile Moi (Chrome moi hoan toan)</button>
+      <button class="btn btn-ghost" onclick="loadProfiles()">↻ Lam moi</button>
+
+      <div style="display:flex; align-items:center; gap:8px; margin-left: 20px; border: 1px solid #334155; padding: 6px 12px; border-radius: 8px; background: #1e293b; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <input type="checkbox" id="globalAutoFp" onchange="localStorage.setItem('globalAutoFp', this.checked)">
+        <label for="globalAutoFp" style="font-size:13px; cursor:pointer; color:#46c8ff; font-weight:bold; margin:0;" title="Bật cái này: Mỗi lần bấm Mở Chrome của bất kỳ Profile nào sẽ TỰ ĐỘNG random lại vân tay mới toanh (như ấn nút Random FP)">Auto Random FP khi mở Chrome</label>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px; margin-left: 8px; border: 1px solid #7c3aed; padding: 6px 12px; border-radius: 8px; background: #2e1065; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <input type="checkbox" id="globalExtBtn2" onchange="localStorage.setItem('globalExtBtn2', this.checked)">
+        <label for="globalExtBtn2" style="font-size:13px; cursor:pointer; color:#a78bfa; font-weight:bold; margin:0;" title="Nút 2 của Extension (Spoof Canvas). Tắt = không bao giờ bật Canvas. Bật = có thể ngẫu nhiên bật">Nút 2 EX</label>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px; margin-left: 8px; border: 1px solid #065f46; padding: 6px 12px; border-radius: 8px; background: #052e16; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+        <input type="checkbox" id="globalAutoSignup" onchange="localStorage.setItem('globalAutoSignup', this.checked)">
+        <label for="globalAutoSignup" style="font-size:13px; cursor:pointer; color:#34d399; font-weight:bold; margin:0;" title="Bật: Sau khi mở Chrome xong sẽ TỰ ĐỘNG chạy Tạo acc + login ngay lập tức (không cần bấm tay)">🤖 Auto Tạo Acc</label>
+      </div>
+    </div>
+    <input id="searchInput" class="search-box" placeholder="🔍 Tim ten, proxy, OS..." oninput="filterProfiles()">
+  </div>
+
+  <div id="profilesGrid" class="grid"></div>
+  <div id="emptyState" class="empty" style="display:none;">
+    <div style="font-size:48px;margin-bottom:16px;">📦</div>
+    <h3>Chua co profile nao</h3>
+    <p style="margin:8px 0 16px;">Tao profile Chrome dau tien, moi Chrome 1 IP rieng + fingerprint moi</p>
+    <button class="btn btn-primary" onclick="openModal()">Tao ngay</button>
+  </div>
+  </div> <!-- end tab-profiles -->
+
+  <!-- ======= TAB: TAO VIDEO ======= -->
+  <div id="tab-video" class="tab-content">
+
+    <div id="videoFormsContainer" style="display:flex;flex-direction:column;gap:16px;">
+      <!-- Dynamic forms will be appended here -->
+    </div>
+
+  </div>
+</div>
+
+
+
+<div id="modalOverlay" class="modal-overlay" onclick="if(event.target==this) closeModal()">
+  <div class="modal">
+    <h2>Tao Profile Chrome Moi Hoan Toan</h2>
+    <div class="form-group">
+      <label>Ten Profile *</label>
+      <input id="f_name" class="input" placeholder="VD: m1, FB Ads 01 - US, TikTok Shop...">
+    </div>
+    <div class="form-group">
+      <label>He dieu hanh (se random may moi)</label>
+      <select id="f_os" class="select">
+        <option value="windows" selected>Windows - Pho bien nhat</option>
+        <option value="macos">macOS</option>
+        <option value="linux">Linux</option>
+        <option value="random">Random - tu chon</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Proxy - Moi Chrome 1 IP rieng nhu BitBrowser (BAT BUOC neu muon moi IP)</label>
+      <input id="f_proxy" class="input" placeholder="VD: 116.97.104.59:8080 hoac 8.8.8.8:8080:user:pass hoac http://user:pass@ip:port">
+      <div class="hint">De trong = dung IP that. Format ho tro: ip:port, ip:port:user:pass, http://user:pass@ip:port, socks5://ip:port</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ghi chu</label>
+        <input id="f_notes" class="input" placeholder="VD: Nuoi via, chay ads bfl.ai...">
+      </div>
+      <div class="form-group">
+        <label>Fingerprint</label>
+        <select id="f_preset" class="select">
+          <option value="true">Real Device + Random ID (nhu may moi that)</option>
+          <option value="false">Random Spoof nang cao</option>
+        </select>
+      </div>
+    </div>
+    <div class="tip">
+      <b>Chrome moi hoan toan:</b> Moi profile se co screen, GPU, CPU, RAM, platform khac nhau hoan toan + ID random. Khi bam <b>Random FP</b> se doi tiep thanh may moi nua ma van giu cookie + proxy.<br>
+      <b>Moi Chrome 1 IP:</b> Moi profile gan 1 proxy rieng, giong BitBrowser hien <span style="color:#10b981">116.97.104.59 Viet Nam</span> ben canh ten.
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeModal()">Huy</button>
+      <button class="btn btn-primary" onclick="createProfile()">Tao Chrome Moi Hoan Toan</button>
+    </div>
+  </div>
+</div>
+
+<div id="cookieModal" class="modal-overlay" onclick="if(event.target==this) closeCookieModal()">
+  <div class="modal lg">
+    <h2>🍪 Import Cookie tu BitBrowser</h2>
+    <p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">
+      Copy toan bo JSON tu o Cookie ben BitBrowser dan vao day. Tool tu lam sach domain.<br>
+      <b style="color:#f59e0b;">Luu y:</b> Dong profile roi mo lai sau khi import de cookie co hieu luc. Tabs cu van giu.
+    </p>
+    <div class="form-group">
+      <label>Cookie JSON (paste tu BitBrowser)</label>
+      <textarea id="cookieInput" class="textarea" style="min-height:220px;" placeholder='[{"name":"_GRECAPTCHA","value":"...","domain":".google.com",...}, {...}]'></textarea>
+    </div>
+    <div id="cookieStatus" style="font-size:12px;color:#10b981;margin:8px 0;display:none;"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeCookieModal()">Huy</button>
+      <button class="btn btn-primary" onclick="doImportCookie()">📥 Import ngay</button>
+    </div>
+  </div>
+</div>
+
+<div id="startupModal" class="modal-overlay" onclick="if(event.target==this) closeStartupModal()">
+  <div class="modal">
+    <h2>⚙️ Cấu hình Tabs Mặc Định Khi Mở Chrome</h2>
+    <p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">
+      Nhập các link (mỗi link 1 dòng) bạn muốn tự động mở khi khởi động Chrome.
+    </p>
+    <div class="form-group">
+      <textarea id="startupUrls" class="textarea" style="min-height:120px;" placeholder="https://dashboard.bfl.ai/&#10;https://chromewebstore.google.com/detail/fingerprint-spoofer/facgnnelgcipeopfbjcajpaibhhdjgcp?hl=vi-&#10;https://tinyhost.shop/"></textarea>
+    </div>
+    <div class="form-group" style="margin-top:12px;">
+      <label>Chế độ mở:</label>
+      <div style="display:flex; gap:16px; margin-top:8px;">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; font-weight:normal; color:#e2e8f0; font-size:13px;">
+          <input type="radio" name="startupMode" value="once" checked>
+          <span>Chỉ lần đầu (Tạo máy mới mở 1 lần)</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; text-transform:none; font-weight:normal; color:#e2e8f0; font-size:13px;">
+          <input type="radio" name="startupMode" value="always">
+          <span>Luôn luôn (Cứ bật Chrome lên là mở, nếu chưa có)</span>
+        </label>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeStartupModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveStartupConfig()">Lưu Cấu Hình</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let allProfiles = [];
+let currentCookieProfileId = null;
+
+function parseProxyInput(str){
+  if(!str || !str.trim()) return null;
+  str = str.trim();
+  try{
+    if(str.includes("://")){
+      const url = new URL(str);
+      return {type: url.protocol.replace(":",""), host: url.hostname, port: parseInt(url.port), username: url.username || null, password: url.password || null}
+    }else{
+      const parts = str.split(":");
+      if(parts.length==2) return {type:"http", host:parts[0], port:parseInt(parts[1])}
+      else if(parts.length==4) return {type:"http", host:parts[0], port:parseInt(parts[1]), username:parts[2], password:parts[3]}
+    }
+  }catch(e){}
+  return null;
+}
+
+async function loadProfiles(){
+  try{
+    const res = await fetch("/api/profiles");
+    allProfiles = await res.json();
+    renderProfiles(allProfiles);
+    document.getElementById("totalProfiles").textContent = allProfiles.length;
+    document.getElementById("runningProfiles").textContent = allProfiles.filter(p=>p.running).length;
+  }catch(e){console.error(e);}
+}
+
+function filterProfiles(){
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  if(!q) renderProfiles(allProfiles);
+  else renderProfiles(allProfiles.filter(p => (p.name+p.id+(p.proxy?JSON.stringify(p.proxy):"")+p.os).toLowerCase().includes(q)));
+}
+
+function renderProfiles(profiles){
+  const grid = document.getElementById("profilesGrid");
+  const empty = document.getElementById("emptyState");
+  if(profiles.length==0){grid.innerHTML="";empty.style.display="block";return;}
+  empty.style.display="none";
+  grid.innerHTML = profiles.map(p=>{
+    const running = p.running;
+    const hasProxy = !!p.proxy;
+    const proxyText = hasProxy ? `${p.proxy.host}:${p.proxy.port}` : "Khong proxy - IP that";
+    const proxyBadge = hasProxy ? `🟢 ${p.proxy.host} 🇻🇳` : "IP that";
+    return `
+    <div class="card ${running?'running':''}">
+      <div class="card-header">
+        <div class="card-title"><span class="dot ${running?'running':''}"></span>${esc(p.name)}</div>
+        <div style="font-size:10px;color:#64748b;">#${p.id} ID:${p.fingerprint?.random_id||''}</div>
+      </div>
+      <div class="card-meta">
+        <span class="badge ${p.os}">${p.os.toUpperCase()}</span>
+        <span class="badge ${p.browser}">${p.browser==='chromium'?'CHROME':'CAMOUFOX (FireFox)'}</span>
+        <span class="badge">${running?'🟢 Dang chay':'⚪ Idle'}</span>
+        ${p.browser==='camoufox'?'<span class="badge" style="color:#fb923c">KHONG dung duoc extension Chrome</span>':`<span class="badge" style="color:#10b981">Extension auto</span>`}
+      </div>
+      <div class="card-proxy ${hasProxy?'has-proxy':''}">🌐 ${hasProxy?`<b>${esc(proxyText)}</b> - Moi Chrome 1 IP rieng`:esc(proxyText)}</div>
+      <div class="card-infos">
+        <span>🍪 ${p.cookies_count||0} cookies</span>
+        <span>📑 ${p.tabs_count||0} tabs</span>
+        <span>🖥️ ${esc(p.fingerprint?.screen||'1920x1080')}</span>
+        <span>🎲 ID: ${p.fingerprint?.random_id||''}</span>
+        ${p.notes?`<span>📝 ${esc(p.notes)}</span>`:''}
+      </div>
+      <div class="card-actions">
+        ${running? 
+          `<button class="btn btn-sm btn-warning" onclick="closeProfile('${p.id}')">⏹ Dong</button>` :
+          `<button class="btn btn-sm btn-success" onclick="launchProfile('${p.id}')">▶️ Mo Chrome</button>`
+        }
+        <button class="btn btn-sm btn-purple" onclick="randomFingerprint('${p.id}')" title="Doi thanh may moi hoan toan nhu BitBrowser Random Fingerprint">🎲 Random FP</button>
+        <button class="btn btn-sm btn-success" onclick="autoSignup('${p.id}')">🤖 Tạo acc + login</button>
+        <button class="btn btn-sm btn-blue" onclick="openCookieModal('${p.id}')">📥 Nhập Cookie</button>
+        <button class="btn btn-sm btn-ghost" onclick="exportCookie('${p.id}', this)">📤 Xuất Cookie</button>
+        <button class="btn btn-sm btn-ghost" onclick="duplicateProfile('${p.id}')">📋 Clone</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteProfile('${p.id}')">🗑</button>
+      </div>
+      <div class="card-footer">
+        <span>Tao: ${new Date(p.created_at).toLocaleString('vi-VN')}</span>
+        <span>${p.fingerprint?.screen||''} | ${p.os}</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
+function openModal(){document.getElementById("modalOverlay").classList.add("active");}
+function closeModal(){document.getElementById("modalOverlay").classList.remove("active");}
+function openCookieModal(id){
+  currentCookieProfileId = id;
+  document.getElementById("cookieInput").value = "";
+  document.getElementById("cookieStatus").style.display="none";
+  document.getElementById("cookieModal").classList.add("active");
+}
+
+async function toggleAutoFp(id, state){
+  try{
+    const res = await fetch(`/api/profiles/${id}/auto-random-fp`, {
+      method: "POST", 
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({state})
+    });
+    if(!res.ok) {
+      const data = await res.json();
+      throw new Error(data.detail||"Lỗi máy chủ");
+    }
+  }catch(e){
+    alert("Lỗi cấu hình: " + e.message);
+  }
+}
+function closeCookieModal(){document.getElementById("cookieModal").classList.remove("active"); currentCookieProfileId=null;}
+
+async function createProfile(){
+  const name = document.getElementById("f_name").value.trim();
+  const os = document.getElementById("f_os").value;
+  const browser = "chromium";
+  const proxyRaw = document.getElementById("f_proxy").value.trim();
+  const notes = document.getElementById("f_notes").value.trim();
+  const preset = document.getElementById("f_preset").value=="true";
+  let proxy = parseProxyInput(proxyRaw);
+  if(proxyRaw && !proxy){alert("Proxy sai format. Dung ip:port hoac ip:port:user:pass");return;}
+  const payload = {name, os, browser, proxy, notes, fingerprint_preset:preset};
+  try{
+    const res = await fetch("/api/profiles", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+    if(!res.ok){const t=await res.text(); throw new Error(t);}
+    const profile = await res.json();
+    closeModal();
+    document.getElementById("f_name").value=""; document.getElementById("f_proxy").value=""; document.getElementById("f_notes").value="";
+    loadProfiles();
+    
+    // Nếu bật Auto Tạo Acc -> tự động mở Chrome rồi tự chạy Tạo acc + login
+    const autoSignup = document.getElementById("globalAutoSignup").checked;
+    if(autoSignup && profile.id) {
+      // Tự động mở Chrome ngay
+      await launchProfile(profile.id);
+    }
+  }catch(e){alert(e.message);}
+}
+
+async function launchProfile(id){
+  const autoFp = document.getElementById("globalAutoFp").checked;
+  const autoSignup = document.getElementById("globalAutoSignup").checked;
+  const enableExtBtn2 = document.getElementById("globalExtBtn2").checked;
+  const startupUrls = localStorage.getItem("globalStartupUrls") || "";
+  const startupMode = localStorage.getItem("globalStartupMode") || "once";
+  
+  const res = await fetch(`/api/profiles/${id}/launch`, {
+    method:"POST", 
+    headers:{"Content-Type":"application/json"}, 
+    body:JSON.stringify({
+        headless:false, 
+        auto_random_fp: autoFp,
+        startup_urls: startupUrls,
+        startup_mode: startupMode,
+        enable_ext_btn2: enableExtBtn2
+    })
+  });
+  const data = await res.json();
+  if(!res.ok){alert("Loi mo: "+(data.detail||JSON.stringify(data))); return;}
+  setTimeout(loadProfiles, 1000);
+  
+  // Auto Tao Acc: doi 8 giay cho Chrome mo xong roi tu dong chay signup
+  if(autoSignup && data.ok && data.pid) {
+    setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/profiles/${id}/auto-signup`, {method:"POST"});
+        const d = await r.json();
+        if(!r.ok) console.warn("Auto signup err:", d);
+      } catch(e) { console.warn("Auto signup exception:", e); }
+    }, 8000);
+  }
+}
+async function closeProfile(id){await fetch(`/api/profiles/${id}/close`, {method:"POST"}); setTimeout(loadProfiles, 600);}
+async function deleteProfile(id){if(!confirm("Xoa profile nay?")) return; await fetch(`/api/profiles/${id}`, {method:"DELETE"}); loadProfiles();}
+async function duplicateProfile(id){await fetch(`/api/profiles/${id}/duplicate`, {method:"POST"}); loadProfiles();}
+async function randomFingerprint(id){
+  if(!confirm("🎲 Random Fingerprint - Tao may moi hoan toan?\\n\\n- Se doi: OS, Screen, GPU, CPU, RAM, ID random\\n- Van giu: Cookie, Proxy (moi Chrome 1 IP van giu)\\n- Neu dang mo, se tu dong va mo lai")) return;
+  try{
+    const res = await fetch(`/api/profiles/${id}/random-fingerprint`, {method:"POST"});
+    const data = await res.json();
+    alert(data.message||"Da random thanh may moi!");
+    loadProfiles();
+  }catch(e){alert("Loi: "+e.message);}
+}
+async function doImportCookie(){
+  const raw = document.getElementById("cookieInput").value.trim();
+  if(!raw){alert("Dan cookie JSON vao");return;}
+  let cookies;
+  try{cookies = JSON.parse(raw);}catch(e){alert("JSON khong hop le: "+e.message);return;}
+  if(!Array.isArray(cookies)){alert("Cookie phai la array [...]");return;}
+  document.getElementById("cookieStatus").style.display="block";
+  document.getElementById("cookieStatus").textContent="⏳ Dang import...";
+  try{
+    const res = await fetch(`/api/profiles/${currentCookieProfileId}/import-cookies`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cookies})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail||JSON.stringify(data));
+    document.getElementById("cookieStatus").textContent=`✅ ${data.message} (${data.imported} cookies)`;
+    document.getElementById("cookieStatus").style.color="#10b981";
+    setTimeout(()=>{closeCookieModal(); loadProfiles();}, 1500);
+  }catch(e){
+    document.getElementById("cookieStatus").textContent="❌ Loi: "+e.message;
+    document.getElementById("cookieStatus").style.color="#ef4444";
+  }
+}
+
+async function exportCookie(id, btn){
+  const oldText = btn.textContent;
+  btn.textContent = "⏳ Đang xuất...";
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/profiles/${id}/export-cookies`);
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    
+    const str = JSON.stringify(data.cookies);
+    try {
+      await navigator.clipboard.writeText(str);
+      alert(`✅ Đã copy ${data.cookies.length} cookies vào Clipboard! Bạn có thể dán (Ctrl+V) vào bất cứ đâu.`);
+    } catch(err) {
+      alert("Trình duyệt không hỗ trợ tự copy. Dữ liệu đã được in ra cửa sổ Console (F12).");
+      console.log(str);
+    }
+  } catch(e) {
+    alert("❌ Lỗi xuất cookie: " + e.message);
+  } finally {
+    btn.textContent = oldText;
+    btn.disabled = false;
+  }
+}
+
+async function autoSignup(id) {
+    try {
+        const res = await fetch(`/api/profiles/${id}/auto-signup`, {method: "POST"});
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.detail || data.message);
+        alert("✅ Đã gửi lệnh Tạo acc + login! Hãy mở Chrome lên để xem tiến trình tự động.");
+    } catch(e) {
+        alert("❌ Lỗi: " + e.message);
+    }
+}
+
+document.getElementById("globalAutoFp").checked = localStorage.getItem("globalAutoFp") === "true";
+
+// ===== TAB SWITCHING =====
+function switchTab(tab) {
+  document.getElementById("tab-profiles").classList.toggle("active", tab === "profiles");
+  document.getElementById("tab-video").classList.toggle("active", tab === "video");
+  document.getElementById("tabBtnProfiles").classList.toggle("active", tab === "profiles");
+  document.getElementById("tabBtnVideo").classList.toggle("active", tab === "video");
+  
+  const addBtn = document.getElementById("addVideoBtn");
+  if (addBtn) addBtn.style.display = (tab === "video") ? "flex" : "none";
+  
+  if (tab === "video") {
+    if (document.getElementById("videoFormsContainer").children.length === 0) {
+      addVideoForm();
+    }
+  }
+}
+
+function clearVideoForm() {
+  addVideoForm();
+}
+
+let formCounter = 0;
+async function addVideoForm() {
+  formCounter++;
+  const fId = formCounter;
+  
+  try {
+    const res = await fetch('/api/profiles/free');
+    const data = await res.json();
+    const freeFromBackend = data.free_profiles || [];
+    
+    const usedInUI = Array.from(document.querySelectorAll("select[id^='videoProfileId_']"))
+      .map(s => s.value).filter(v => v);
+      
+    const trulyFree = freeFromBackend.filter(id => !usedInUI.includes(id));
+    
+    if (trulyFree.length === 0) {
+      alert("Hết Profile Chrome rảnh! Vui lòng tạo thêm Profile trước khi mở thẻ mới!");
+      formCounter--;
+      return;
+    }
+    
+    const html = `
+      <div id="vform_${fId}" style="background:#151a27;border:1px solid #212a3d;border-radius:14px;padding:16px;position:relative;">
+        <button class="btn btn-ghost" style="position:absolute;top:8px;right:8px;padding:4px 8px;color:#ef4444;height:auto;" onclick="document.getElementById('vform_${fId}').remove()" title="Đóng thẻ này">✕</button>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr 200px 120px 120px;gap:12px;align-items:end;margin-top:10px;">
+          <!-- Prompt -->
+          <div class="form-group" style="margin:0;">
+            <label>📝 Prompt mô tả video</label>
+            <textarea id="videoPrompt_${fId}" class="textarea" rows="2" style="min-height:52px;resize:none;" placeholder="VD: video mèo cute..."></textarea>
+          </div>
+
+          <!-- Upload ảnh -->
+          <div class="form-group" style="margin:0;">
+            <label>🖼️ Ảnh khung đầu → khung cuối</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div class="img-drop-zone" style="height:52px;flex:1;" onclick="document.getElementById('imgInput1_${fId}').click()" oncontextmenu="showImgContextMenu(event, '${fId}')">
+                <img id="imgPreview1_${fId}" src="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:8px;" alt="">
+                <div class="dz-label" id="dzLabel1_${fId}" style="font-size:10px;"><div>➕ Ảnh 1</div><div style="font-size:9px;">(Start)</div></div>
+              </div>
+              <span style="color:#4b5563;">→</span>
+              <div class="img-drop-zone" style="height:52px;flex:1;" onclick="document.getElementById('imgInput2_${fId}').click()">
+                <img id="imgPreview2_${fId}" src="" style="display:none;width:100%;height:100%;object-fit:cover;border-radius:8px;" alt="">
+                <div class="dz-label" id="dzLabel2_${fId}" style="font-size:10px;"><div>➕ Ảnh 2</div><div style="font-size:9px;">(End)</div></div>
+              </div>
+            </div>
+            <input type="file" id="imgInput1_${fId}" accept="image/*" style="display:none" onchange="previewImgDynamic(event, '1_${fId}')">
+            <input type="file" id="imgInput2_${fId}" accept="image/*" style="display:none" onchange="previewImgDynamic(event, '2_${fId}')">
+          </div>
+
+          <!-- Profile -->
+          <div class="form-group" style="margin:0;">
+            <label>👤 Profile Chrome</label>
+            <select id="videoProfileId_${fId}" class="select" style="height:52px;">
+              <option value="">-- Chọn profile --</option>
+            </select>
+          </div>
+
+          <!-- Nút Tạo -->
+          <div style="display:flex;flex-direction:column;gap:6px;width:120px;">
+            <button class="btn btn-primary" style="height:52px;font-size:14px;justify-content:center;background:linear-gradient(135deg,#7c3aed,#db2777);white-space:nowrap;padding:0;" onclick="startVideoCreationDynamic(${fId})" id="createVideoBtn_${fId}">
+              ▶️ Tạo Video
+            </button>
+          </div>
+          
+          <!-- Kết quả Video nằm chung luôn -->
+          <div id="vtask_video_container_${fId}" style="display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:flex-start;height:100%; overflow-y:auto; padding:4px;">
+             <video id="vtask_video_${fId}" controls style="display:none;width:120px;height:52px;border-radius:8px;object-fit:contain;background-color:#000;"></video>
+             <a id="vtask_dl_${fId}" href="#" download style="display:none;"><button class="btn btn-success btn-sm" style="width:120px;justify-content:center;height:24px;font-size:11px;">⬇️ Tải về</button></a>
+             <div id="vtask_empty_${fId}" style="color:#4b5563;font-size:11px;text-align:center;border:1px dashed #374151;width:100%;min-height:52px;display:flex;align-items:center;justify-content:center;border-radius:8px;">Chưa có video</div>
+          </div>
+        </div>
+        
+        <!-- Status bar -->
+        <div id="vtask_status_${fId}" class="status-bar" style="margin-top:12px;display:none;"></div>
+        <button id="vtask_retry_${fId}" class="btn btn-ghost btn-sm" style="display:none;position:absolute;bottom:16px;right:16px;border:1px solid #374151;" onclick="retryTaskDynamic(${fId})">🔄 Thử lại ngay</button>
+      </div>
+    `;
+    document.getElementById("videoFormsContainer").insertAdjacentHTML('beforeend', html);
+    
+    const sel = document.getElementById(`videoProfileId_${fId}`);
+    (allProfiles || []).forEach(p => {
+      sel.innerHTML += `<option value="${p.id}">${p.name} (${p.os})</option>`;
+    });
+    
+    sel.value = trulyFree[0];
+    
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+
+function populateVideoProfiles() {
+  const selects = document.querySelectorAll("select[id^='videoProfileId_']");
+  selects.forEach(sel => {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Chọn profile đã đăng nhập --</option>';
+    (allProfiles || []).forEach(p => {
+      sel.innerHTML += `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${p.name} (${p.os})</option>`;
+    });
+  });
+}
+
+// ===== IMAGE UPLOAD =====
+function previewImgDynamic(event, suffix) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById(`imgPreview${suffix}`).src = e.target.result;
+    document.getElementById(`imgPreview${suffix}`).style.display = "block";
+    document.getElementById(`dzLabel${suffix}`).style.display = "none";
+    saveUIState();
+  };
+  reader.readAsDataURL(file);
+}
+
+function dataURLtoBlob(dataurl) {
+    try {
+        var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+            bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+        while(n--){
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], {type:mime});
+    } catch(e) {
+        return null;
+    }
+}
+
+// ===== VIDEO: ĐA LUỒNG (nhiều task song song) =====
+const videoTaskPolls = {};  // fId -> intervalId
+const fIdToTaskId = {}; // map fId to actual task_id
+
+async function startVideoCreationDynamic(fId) {
+  const prompt = document.getElementById(`videoPrompt_${fId}`).value.trim();
+  const profileId = document.getElementById(`videoProfileId_${fId}`).value;
+  const img1File = document.getElementById(`imgInput1_${fId}`).files[0];
+
+  if (!prompt) { alert("Vui lòng nhập prompt mô tả video!"); return; }
+
+  const btn = document.getElementById(`createVideoBtn_${fId}`);
+  btn.disabled = true;
+  btn.textContent = "⏳...";
+
+  const formData = new FormData();
+  formData.append("prompt", prompt);
+  formData.append("profile_id", profileId);
+  
+  const savePath = document.getElementById("globalVideoSavePath") ? document.getElementById("globalVideoSavePath").value.trim() : "";
+  formData.append("save_path", savePath);
+
+  const isHeadless = document.getElementById("globalHeadless") ? document.getElementById("globalHeadless").checked : false;
+  formData.append("is_headless", isHeadless);
+
+  const img1Src = document.getElementById(`imgPreview1_${fId}`)?.src || "";
+  if (img1File) formData.append("img1", img1File);
+  else if (img1Src && img1Src.startsWith("data:")) formData.append("img1", dataURLtoBlob(img1Src), "image1.png");
+  
+  const img2File = document.getElementById(`imgInput2_${fId}`).files[0];
+  const img2Src = document.getElementById(`imgPreview2_${fId}`)?.src || "";
+  if (img2File) formData.append("img2", img2File);
+  else if (img2Src && img2Src.startsWith("data:")) formData.append("img2", dataURLtoBlob(img2Src), "image2.png");
+
+  try {
+    const res = await fetch("/api/video/create", { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    
+    const taskId = data.task_id;
+    fIdToTaskId[fId] = taskId;
+    
+    if (data.profile_id) {
+      const select = document.getElementById(`videoProfileId_${fId}`);
+      if (select) select.value = data.profile_id;
+    }
+    
+    const bar = document.getElementById(`vtask_status_${fId}`);
+    bar.style.display = "flex";
+    bar.className = "status-bar running";
+    bar.innerHTML = `<div class="spinner" style="flex-shrink:0;"></div> <div style="font-size:11px;flex:1;word-break:break-word;">⏳ Đang khởi tạo luồng...</div>`;
+    
+    document.getElementById(`vtask_retry_${fId}`).style.display = "none";
+    
+    // Bắt đầu poll status
+    if(videoTaskPolls[fId]) clearInterval(videoTaskPolls[fId]);
+    videoTaskPolls[fId] = setInterval(() => pollTaskStatusDynamic(fId, taskId), 2000);
+    
+  } catch(e) {
+    alert("❌ Lỗi: " + e.message);
+    btn.disabled = false;
+    btn.textContent = "▶️ Tạo Video";
+  }
+}
+
+async function pollTaskStatusDynamic(fId, taskId) {
+  try {
+    const res = await fetch(`/api/video/status/${taskId}`);
+    const data = await res.json();
+    
+    const bar = document.getElementById(`vtask_status_${fId}`);
+    if (!bar) { clearInterval(videoTaskPolls[fId]); return; }
+    
+    const icon = data.status === "running" ? '<div class="spinner" style="flex-shrink:0;"></div>' : data.status === "done" ? '<span style="flex-shrink:0;">✅</span>' : '<span style="flex-shrink:0;">❌</span>';
+    bar.className = "status-bar " + (data.status || "");
+    bar.innerHTML = `${icon} <div style="font-size:11px;flex:1;word-break:break-word;max-height:80px;overflow-y:auto;white-space:pre-wrap;">${data.message || ""}</div>`;
+    
+    if (data.status === "done") {
+      clearInterval(videoTaskPolls[fId]);
+      const btn = document.getElementById(`createVideoBtn_${fId}`);
+      if(btn) {
+        btn.disabled = false;
+        btn.textContent = "▶️ Tạo Video";
+      }
+      let urlsToRender = [];
+      if (data.result_urls && data.result_urls.length > 0) {
+          urlsToRender = data.result_urls;
+      } else if (data.result_url) {
+          urlsToRender = [data.result_url];
+      }
+      
+      if (urlsToRender.length > 0) {
+        document.getElementById(`vtask_empty_${fId}`).style.display = "none";
+        
+        let videosHtml = '';
+        urlsToRender.forEach((url, idx) => {
+            videosHtml += `
+            <div style="display:flex; flex-direction:column; align-items:center; gap:4px; margin-bottom:12px; border:1px solid #374151; padding:4px; border-radius:8px; background:#1e293b;">
+                <video src="${url}" controls style="width:120px;height:52px;border-radius:4px;object-fit:contain;background-color:#000;cursor:pointer;" onclick="if(this.paused){this.play();} else {this.pause();}" title="Click để xem/dừng"></video>
+                <a href="${url}" download><button class="btn btn-success btn-sm" style="width:120px;justify-content:center;height:24px;font-size:11px;">⬇️ Tải Video</button></a>
+                <button class="btn btn-primary btn-sm" onclick="let v = this.parentElement.querySelector('video'); if(v.requestFullscreen) v.requestFullscreen(); v.play();" style="width:120px;justify-content:center;height:24px;font-size:11px;">▶️ Xem Video</button>
+            </div>
+            `;
+        });
+        
+        let container = document.getElementById(`vtask_video_container_${fId}`);
+        if(container) {
+            // Xóa nội dung "chưa có video" cũ
+            const emptyEl = document.getElementById(`vtask_empty_${fId}`);
+            if(emptyEl) emptyEl.style.display = "none";
+            
+            // Xóa các video element mặc định (nếu còn)
+            const oldVid = document.getElementById(`vtask_video_${fId}`);
+            if(oldVid) oldVid.style.display = "none";
+            const oldDl = document.getElementById(`vtask_dl_${fId}`);
+            if(oldDl) oldDl.style.display = "none";
+            
+            // Chèn danh sách video mới vào container (nhưng không ghi đè mất id container)
+            // Thay vì dùng div mới, ta tạo 1 div chứa video list nếu chưa có
+            let listDiv = document.getElementById(`vtask_video_list_${fId}`);
+            if(!listDiv) {
+                listDiv = document.createElement("div");
+                listDiv.id = `vtask_video_list_${fId}`;
+                listDiv.style.width = "100%";
+                listDiv.style.display = "flex";
+                listDiv.style.flexDirection = "column";
+                container.appendChild(listDiv);
+            }
+            listDiv.innerHTML = videosHtml;
+        }
+      }
+    } else if (data.status === "error") {
+      clearInterval(videoTaskPolls[fId]);
+      const btn = document.getElementById(`createVideoBtn_${fId}`);
+      if(btn) {
+        btn.disabled = false;
+        btn.textContent = "▶️ Tạo Video";
+      }
+      document.getElementById(`vtask_retry_${fId}`).style.display = "block";
+    }
+  } catch(e) {
+    console.error(e);
+  }
+}
+
+async function retryTaskDynamic(fId) {
+  const taskId = fIdToTaskId[fId];
+  if(!taskId) return;
+  
+  try {
+    const bar = document.getElementById(`vtask_status_${fId}`);
+    if (bar) {
+      bar.className = "status-bar running";
+      bar.innerHTML = `<div class="spinner" style="flex-shrink:0;"></div> <div style="font-size:11px;flex:1;word-break:break-word;">⏳ Đang gửi lệnh thử lại...</div>`;
+    }
+    document.getElementById(`vtask_retry_${fId}`).style.display = "none";
+    
+    const res = await fetch(`/api/video/retry/${taskId}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    
+    if(videoTaskPolls[fId]) clearInterval(videoTaskPolls[fId]);
+    videoTaskPolls[fId] = setInterval(() => pollTaskStatusDynamic(fId, taskId), 2000);
+    
+    const btn = document.getElementById(`createVideoBtn_${fId}`);
+    if(btn) {
+      btn.disabled = true;
+      btn.textContent = "⏳...";
+    }
+  } catch(e) {
+    alert("❌ Lỗi khi thử lại: " + e.message);
+    const btn = document.getElementById(`vtask_retry_${taskId}`);
+    if (btn) btn.style.display = "flex";
+  }
+}
+
+
+const stateHistory = [];
+let historyIndex = -1;
+let isRestoringHistory = false;
+
+function saveUIState() {
+  if (isRestoringHistory) return;
+  
+  const state = {
+    globalVideoSavePath: document.getElementById("globalVideoSavePath") ? document.getElementById("globalVideoSavePath").value : "",
+    globalHeadless: document.getElementById("globalHeadless") ? document.getElementById("globalHeadless").checked : false,
+    cards: []
+  };
+  
+  const forms = document.querySelectorAll("[id^='vform_']");
+  forms.forEach(form => {
+    const fId = parseInt(form.id.replace("vform_", ""));
+    const prompt = document.getElementById(`videoPrompt_${fId}`)?.value || "";
+    const profileId = document.getElementById(`videoProfileId_${fId}`)?.value || "";
+    const img1Src = document.getElementById(`imgPreview1_${fId}`)?.src || "";
+    const img2Src = document.getElementById(`imgPreview2_${fId}`)?.src || "";
+    const taskId = fIdToTaskId[fId] || "";
+    
+    state.cards.push({ fId, prompt, profileId, taskId, img1Src: img1Src.startsWith("data:") ? img1Src : "", img2Src: img2Src.startsWith("data:") ? img2Src : "" });
+  });
+  
+  const stateStr = JSON.stringify(state);
+  
+  if (historyIndex === -1 || stateStr !== stateHistory[historyIndex]) {
+    if (historyIndex < stateHistory.length - 1) {
+      stateHistory.splice(historyIndex + 1);
+    }
+    stateHistory.push(stateStr);
+    if (stateHistory.length > 50) stateHistory.shift();
+    historyIndex = stateHistory.length - 1;
+  }
+  
+  try {
+    localStorage.setItem("antidetect_video_state", stateStr);
+  } catch(e) {
+    console.warn("Storage quota exceeded, saving without images");
+    state.cards.forEach(c => { c.img1Src = ""; c.img2Src = ""; });
+    const fallbackStr = JSON.stringify(state);
+    localStorage.setItem("antidetect_video_state", fallbackStr);
+    stateHistory[historyIndex] = fallbackStr;
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  const isInput = (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y')) {
+      if (isInput) return; // Let browser handle text undo natively
+      e.preventDefault();
+      if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) {
+        if (historyIndex < stateHistory.length - 1) {
+          historyIndex++;
+          restoreStateStr(stateHistory[historyIndex]);
+        }
+      } else {
+        if (historyIndex > 0) {
+          historyIndex--;
+          restoreStateStr(stateHistory[historyIndex]);
+        }
+      }
+  }
+});
+
+function restoreStateStr(saved) {
+  if (!saved) return;
+  isRestoringHistory = true;
+  try {
+      const state = JSON.parse(saved);
+      if (state.globalVideoSavePath) {
+          const gvsp = document.getElementById("globalVideoSavePath");
+          if(gvsp) gvsp.value = state.globalVideoSavePath;
+      }
+      if (state.hasOwnProperty("globalHeadless")) {
+          const gh = document.getElementById("globalHeadless");
+          if(gh) gh.checked = state.globalHeadless;
+      }
+      
+      document.getElementById("videoFormsContainer").innerHTML = "";
+      
+      if (state.cards && state.cards.length > 0) {
+          state.cards.forEach(c => {
+              formCounter = Math.max(formCounter, c.fId);
+              addVideoForm(c.fId);
+              
+              setTimeout(() => {
+                  if (c.prompt) document.getElementById(`videoPrompt_${c.fId}`).value = c.prompt;
+                  if (c.profileId) document.getElementById(`videoProfileId_${c.fId}`).value = c.profileId;
+                  if (c.img1Src) {
+                      document.getElementById(`imgPreview1_${c.fId}`).src = c.img1Src;
+                      document.getElementById(`imgPreview1_${c.fId}`).style.display = "block";
+                      document.getElementById(`dzLabel1_${c.fId}`).style.display = "none";
+                  }
+                  if (c.img2Src) {
+                      document.getElementById(`imgPreview2_${c.fId}`).src = c.img2Src;
+                      document.getElementById(`imgPreview2_${c.fId}`).style.display = "block";
+                      document.getElementById(`dzLabel2_${c.fId}`).style.display = "none";
+                  }
+                  if (c.taskId) {
+                      fIdToTaskId[c.fId] = c.taskId;
+                      const bar = document.getElementById(`vtask_status_${c.fId}`);
+                      if(bar) bar.style.display = "flex";
+                      if (!videoTaskPolls[c.fId]) {
+                          videoTaskPolls[c.fId] = setInterval(() => pollTaskStatusDynamic(c.fId, c.taskId), 2000);
+                      }
+                      const btn = document.getElementById(`createVideoBtn_${c.fId}`);
+                      if(btn && btn.textContent !== "▶️ Tạo Video") {
+                          btn.disabled = true;
+                          btn.textContent = "⏳...";
+                      }
+                  }
+              }, 50);
+          });
+      } else {
+          addVideoForm();
+      }
+      localStorage.setItem("antidetect_video_state", saved);
+  } catch(e) {
+      console.error(e);
+      addVideoForm();
+  }
+  setTimeout(() => { isRestoringHistory = false; }, 200);
+}
+
+let isStateLoaded = false;
+function loadUIState() {
+  if (isStateLoaded) return;
+  const saved = localStorage.getItem("antidetect_video_state");
+  if (!saved) {
+      if (document.getElementById("videoFormsContainer").children.length === 0) {
+          addVideoForm();
+      }
+      isStateLoaded = true;
+      return;
+  }
+  restoreStateStr(saved);
+  isStateLoaded = true;
+}
+
+async function selectFolder() {
+    try {
+        const res = await fetch('/api/select-folder');
+        const data = await res.json();
+        if (data.path) {
+            document.getElementById('globalVideoSavePath').value = data.path;
+            saveUIState();
+        }
+    } catch(e) { console.error("Lỗi chọn thư mục:", e); }
+}
+
+function openStartupModal() {
+    const urls = localStorage.getItem("globalStartupUrls") || "";
+    const mode = localStorage.getItem("globalStartupMode") || "once";
+    document.getElementById("startupUrls").value = urls;
+    const radio = document.querySelector(`input[name="startupMode"][value="${mode}"]`);
+    if(radio) radio.checked = true;
+    document.getElementById("startupModal").classList.add("active");
+}
+function closeStartupModal() {
+    document.getElementById("startupModal").classList.remove("active");
+}
+function saveStartupConfig() {
+    const urls = document.getElementById("startupUrls").value.trim();
+    const mode = document.querySelector('input[name="startupMode"]:checked').value;
+    localStorage.setItem("globalStartupUrls", urls);
+    localStorage.setItem("globalStartupMode", mode);
+    closeStartupModal();
+    alert("Đã lưu cấu hình Tabs khởi động!");
+}
+
+let contextMenuTargetFid = null;
+
+function showImgContextMenu(e, fId) {
+    e.preventDefault();
+    contextMenuTargetFid = fId;
+    const menu = document.getElementById("imgContextMenu");
+    menu.style.display = "block";
+    menu.style.left = e.pageX + "px";
+    menu.style.top = e.pageY + "px";
+}
+
+document.addEventListener("click", function(e) {
+    const menu = document.getElementById("imgContextMenu");
+    if(menu) menu.style.display = "none";
+});
+
+function applyImageToAll() {
+    if(!contextMenuTargetFid) return;
+    const imgSrc = document.getElementById(`imgPreview1_${contextMenuTargetFid}`).src;
+    if(!imgSrc || !imgSrc.startsWith("data:")) {
+        alert("Thẻ này chưa có ảnh hợp lệ!");
+        return;
+    }
+    
+    const forms = document.querySelectorAll("[id^='vform_']");
+    forms.forEach(form => {
+        const id = form.id.replace("vform_", "");
+        if(id !== contextMenuTargetFid) {
+            document.getElementById(`imgPreview1_${id}`).src = imgSrc;
+            document.getElementById(`imgPreview1_${id}`).style.display = "block";
+            document.getElementById(`dzLabel1_${id}`).style.display = "none";
+        }
+    });
+    saveUIState();
+}
+
+function keepAndCancel() {
+    if(!contextMenuTargetFid) return;
+    const targetImgSrc = document.getElementById(`imgPreview1_${contextMenuTargetFid}`).src;
+    if(!targetImgSrc || !targetImgSrc.startsWith("data:")) return;
+    
+    const forms = document.querySelectorAll("[id^='vform_']");
+    forms.forEach(form => {
+        const id = form.id.replace("vform_", "");
+        if(id !== contextMenuTargetFid) {
+            const imgSrc = document.getElementById(`imgPreview1_${id}`).src;
+            if(imgSrc === targetImgSrc) {
+                form.remove();
+            }
+        }
+    });
+    saveUIState();
+}
+
+loadProfiles();
+setInterval(loadProfiles, 4000);
+
+// Restore toggle states from localStorage
+document.addEventListener('DOMContentLoaded', () => {
+  if(localStorage.getItem('globalAutoFp') === 'true') document.getElementById('globalAutoFp').checked = true;
+  if(localStorage.getItem('globalAutoSignup') === 'true') document.getElementById('globalAutoSignup').checked = true;
+  if(localStorage.getItem('globalExtBtn2') === 'true') document.getElementById('globalExtBtn2').checked = true;
+});
+
+</script>
+
+<!-- Custom Context Menu for Image -->
+<div id="imgContextMenu" style="display:none; position:fixed; z-index:9999; background:#1e293b; border:1px solid #334155; border-radius:8px; padding:4px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+    <div class="menu-item" onclick="applyImageToAll()" style="padding:8px 12px; cursor:pointer; font-size:12px; color:#e2e8f0; transition:0.2s; border-radius:4px;" onmouseover="this.style.background='#334155'" onmouseout="this.style.background='transparent'">📥 Nhập ảnh cho toàn bộ các thẻ</div>
+    <div class="menu-item" onclick="keepAndCancel()" style="padding:8px 12px; cursor:pointer; font-size:12px; color:#ef4444; transition:0.2s; border-radius:4px;" onmouseover="this.style.background='#334155'" onmouseout="this.style.background='transparent'">🗑️ Giữ thẻ này và hủy các thẻ khác</div>
+</div>
+</body>
+</html>
