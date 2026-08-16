@@ -837,44 +837,52 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
 
             old_video_urls = []
             
-            # KIỂM TRA CÓ VIDEO CŨ ĐANG CHẠY KHÔNG TRƯỚC KHI TẠO MỚI
-            page.wait_for_timeout(2000)
-            initial_status = _get_generating_status(page)
-            if initial_status:
-                video_tasks[task_id] = {"status": "running", "message": f"Phát hiện tiến trình cũ: {initial_status}. Đang chờ hoàn thành trước..."}
-                for i in range(600):
-                    page.wait_for_timeout(1000)
-                    st = _get_generating_status(page)
-                    if st:
-                        video_tasks[task_id]["message"] = f"Đang chờ tiến trình cũ: {st}"
-                    else:
-                        break
-                
-                page.wait_for_timeout(3000)
-                try:
-                    new_existing = page.evaluate("""() => {
-                        return Array.from(document.querySelectorAll('video')).map(v => v.src || '').filter(s => s.startsWith('http'));
-                    }""")
-                    current_videos = set(new_existing or [])
-                    new_vids = current_videos - known_video_urls
-                    if new_vids:
-                        import uuid
-                        import urllib.parse
-                        out_dir = Path(save_path)
-                        out_dir.mkdir(parents=True, exist_ok=True)
-                        for nv in new_vids:
-                            uid = str(uuid.uuid4())[:8]
-                            out_file = out_dir / f"old_{task_id}_{uid}.mp4"
-                            try:
-                                resp = context.request.get(nv)
-                                if resp.ok:
-                                    with open(out_file, "wb") as f:
-                                        f.write(resp.body())
-                                    old_video_urls.append(f"/api/video/download/old_{task_id}_{uid}?path={urllib.parse.quote(str(out_file))}")
-                            except Exception as e:
-                                pass
-                        known_video_urls = current_videos
-                except: pass
+            def _clear_old_videos():
+                nonlocal known_video_urls
+                page.wait_for_timeout(2000)
+                initial_status = _get_generating_status(page)
+                if initial_status:
+                    video_tasks[task_id] = {"status": "running", "message": f"Phát hiện tiến trình cũ: {initial_status}. Đang chờ hoàn thành trước..."}
+                    for i in range(600):
+                        page.wait_for_timeout(1000)
+                        st = _get_generating_status(page)
+                        if st:
+                            video_tasks[task_id]["message"] = f"Đang chờ tiến trình cũ: {st}"
+                        else:
+                            break
+                    
+                    video_tasks[task_id]["message"] = "Đang dọn dẹp video cũ..."
+                    # Đợi tối đa 20s để thẻ <video> của video cũ xuất hiện
+                    for _ in range(20):
+                        page.wait_for_timeout(1000)
+                        try:
+                            new_existing = page.evaluate("""() => {
+                                return Array.from(document.querySelectorAll('video')).map(v => v.src || '').filter(s => s.startsWith('http'));
+                            }""")
+                            current_videos = set(new_existing or [])
+                            new_vids = current_videos - known_video_urls
+                            if new_vids:
+                                import uuid
+                                import urllib.parse
+                                out_dir = Path(save_path)
+                                out_dir.mkdir(parents=True, exist_ok=True)
+                                for nv in new_vids:
+                                    uid = str(uuid.uuid4())[:8]
+                                    out_file = out_dir / f"old_{task_id}_{uid}.mp4"
+                                    try:
+                                        resp = context.request.get(nv)
+                                        if resp.ok:
+                                            with open(out_file, "wb") as f:
+                                                f.write(resp.body())
+                                            old_video_urls.append(f"/api/video/download/old_{task_id}_{uid}?path={urllib.parse.quote(str(out_file))}")
+                                    except Exception as e:
+                                        pass
+                                known_video_urls.update(current_videos)
+                                break
+                        except: pass
+
+            # Gọi dọn dẹp ở lần đầu
+            _clear_old_videos()
 
             # Điền form lần đầu
             video_tasks[task_id] = {"status": "running", "message": "Đang điền thông tin..."}
@@ -992,6 +1000,9 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                     }""")
                     known_video_urls = set(existing or [])
                 except: pass
+
+                # Bắt buộc dọn dẹp video cũ trong retry để tránh bắt nhầm
+                _clear_old_videos()
 
                 video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt+1}/{MAX_RETRIES}: Đang kiểm tra form..."}
                 _fill_form(page, context, ext_path, prompt, img1_path, img2_path, video_tasks, task_id, is_retry=True)
