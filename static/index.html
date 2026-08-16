@@ -858,14 +858,16 @@ async function pollTaskStatusDynamic(fId, taskId) {
             listDiv.innerHTML = videosHtml;
         }
       }
-    } else if (data.status === "error") {
+    } else if (data.status === "error" || data.status === "not_found") {
       clearInterval(videoTaskPolls[fId]);
       const btn = document.getElementById(`createVideoBtn_${fId}`);
       if(btn) {
         btn.disabled = false;
         btn.textContent = "▶️ Tạo Video";
       }
-      document.getElementById(`vtask_retry_${fId}`).style.display = "block";
+      if (data.status === "error") {
+          document.getElementById(`vtask_retry_${fId}`).style.display = "block";
+      }
     }
   } catch(e) {
     console.error(e);
