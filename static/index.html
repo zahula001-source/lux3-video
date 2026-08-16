@@ -120,6 +120,7 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
       <button class="tab-btn active" id="tabBtnProfiles" onclick="switchTab('profiles')">🖥️ Profiles</button>
       <button class="tab-btn" id="tabBtnVideo" onclick="switchTab('video')">🎬 Tạo Video (BFL.AI)</button>
       <button id="addVideoBtn" onclick="addVideoForm()" style="display:none; align-items:center; justify-content:center; background:none; border:1px solid #10b981; color:#10b981; border-radius:6px; cursor:pointer; font-size:18px; line-height:1; width:28px; height:28px; transition:0.2s; padding:0;" onmouseover="this.style.background='#10b981';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#10b981'" title="Mở thẻ trống mới để điền">+</button>
+      <button id="loadSessionBtn" onclick="loadUnfinishedUIState()" style="display:none; align-items:center; justify-content:center; background:none; border:1px solid #f59e0b; color:#f59e0b; border-radius:6px; cursor:pointer; font-size:12px; padding:0 8px; height:28px; transition:0.2s; margin-left:6px;" onmouseover="this.style.background='#f59e0b';this.style.color='#fff'" onmouseout="this.style.background='none';this.style.color='#f59e0b'" title="Khôi phục lại các thẻ bị lỗi hoặc đang chạy dở">Khôi phục Thẻ Lỗi/Chưa Xong</button>
     </div>
     
     <div style="display:inline-flex; align-items:center; gap: 6px;">
@@ -528,6 +529,8 @@ function switchTab(tab) {
   
   const addBtn = document.getElementById("addVideoBtn");
   if (addBtn) addBtn.style.display = (tab === "video") ? "flex" : "none";
+  const loadBtn = document.getElementById("loadSessionBtn");
+  if (loadBtn) loadBtn.style.display = (tab === "video") ? "flex" : "none";
   
   if (tab === "video") {
     if (document.getElementById("videoFormsContainer").children.length === 0) {
@@ -872,8 +875,9 @@ function saveUIState() {
     const img1Src = document.getElementById(`imgPreview1_${fId}`)?.src || "";
     const img2Src = document.getElementById(`imgPreview2_${fId}`)?.src || "";
     const taskId = fIdToTaskId[fId] || "";
+    const isDone = document.getElementById(`vtask_empty_${fId}`)?.style.display === "none";
     
-    state.cards.push({ fId, prompt, profileId, taskId, img1Src: img1Src.startsWith("data:") ? img1Src : "", img2Src: img2Src.startsWith("data:") ? img2Src : "" });
+    state.cards.push({ fId, prompt, profileId, taskId, img1Src: img1Src.startsWith("data:") ? img1Src : "", img2Src: img2Src.startsWith("data:") ? img2Src : "", isDone });
   });
   
   const stateStr = JSON.stringify(state);
@@ -990,6 +994,32 @@ function loadUIState() {
   }
   restoreStateStr(saved);
   isStateLoaded = true;
+}
+
+function loadUnfinishedUIState() {
+  const saved = localStorage.getItem("antidetect_video_state");
+  if (!saved) {
+      alert("Chưa có phiên làm việc nào được lưu!");
+      return;
+  }
+  
+  try {
+      const state = JSON.parse(saved);
+      const unfinishedCards = state.cards ? state.cards.filter(c => !c.isDone) : [];
+      
+      if (unfinishedCards.length === 0) {
+          alert("Tất cả các thẻ trong phiên trước đều đã hoàn thành hoặc không có thẻ nào!");
+          return;
+      }
+      
+      // Xoá tất cả form hiện tại để load lại các thẻ chưa xong
+      document.getElementById("videoFormsContainer").innerHTML = "";
+      state.cards = unfinishedCards;
+      restoreStateStr(JSON.stringify(state));
+      // alert("Đã khôi phục " + unfinishedCards.length + " thẻ chưa hoàn thành/bị lỗi!");
+  } catch(e) {
+      alert("Lỗi khôi phục: " + e.message);
+  }
 }
 
 async function selectFolder() {
