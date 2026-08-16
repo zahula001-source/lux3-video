@@ -7,7 +7,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family: 'Inter', sans-serif;}
 body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
-.header{background:#11151f;border-bottom:1px solid #1e2535;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;}
+.header{background:#11151f;border-bottom:1px solid #1e2535;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100;}
 .logo{display:flex;align-items:center;gap:12px;}
 .logo-icon{width:36px;height:36px;background:linear-gradient(135deg,#6d5dfc,#46c8ff);border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:900;}
 .logo h1{font-size:18px;font-weight:700;}
@@ -15,7 +15,7 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
 .header-stats{display:flex;gap:20px;font-size:13px;color:#9ca3af;}
 .stat b{color:#fff;font-size:16px;display:block}
 .main{max-width:1300px;margin:0 auto;padding:24px;}
-.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px;position:sticky;top:115px;z-index:98;background:#0b0e14;padding:10px 0;border-bottom:1px solid #1e2535;margin-top:-10px;}
 .btn{border:none;cursor:pointer;padding:10px 18px;border-radius:10px;font-weight:600;font-size:13px;transition:0.2s;display:inline-flex;align-items:center;gap:6px;}
 .btn-primary{background:linear-gradient(135deg,#6d5dfc,#46c8ff);color:#fff;}
 .btn-primary:hover{transform:translateY(-1px);}
@@ -71,7 +71,7 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
 .tip{background:#0f1420;border:1px solid #1e2535;border-radius:10px;padding:12px;font-size:11px;color:#94a3b8;margin-top:12px;}
 .tip b{color:#46c8ff}
 /* TABS */
-.tabs-nav{display:flex;gap:4px;border-bottom:2px solid #1e2535;margin-bottom:20px;}
+.tabs-nav{display:flex;gap:4px;border-bottom:2px solid #1e2535;margin-bottom:10px;position:sticky;top:69px;z-index:99;background:#0b0e14;padding:10px 0;margin-top:-10px;}
 .tab-btn{background:none;border:none;color:#6b7280;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:0.2s;}
 .tab-btn.active{color:#46c8ff;border-bottom-color:#46c8ff;}
 .tab-btn:hover{color:#cbd5e1;}
@@ -441,11 +441,12 @@ async function createProfile(){
   const payload = {name, os, browser, proxy, notes, fingerprint_preset:preset};
   try{
     const res = await fetch("/api/profiles", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
-    if(!res.ok){const t=await res.text(); throw new Error(t);}
+    if(!res.ok) throw new Error(await res.text());
     const profile = await res.json();
     closeModal();
     document.getElementById("f_name").value=""; document.getElementById("f_proxy").value=""; document.getElementById("f_notes").value="";
-    loadProfiles();
+    await loadProfiles();
+    setTimeout(() => { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }, 100);
     
     // Nếu bật Auto Tạo Acc -> tự động mở Chrome rồi tự chạy Tạo acc + login
     const autoSignup = document.getElementById("globalAutoSignup").checked;
@@ -677,6 +678,10 @@ async function addVideoForm(force_fId = null) {
     });
     
     sel.value = trulyFree[0];
+    
+    setTimeout(() => {
+        document.getElementById(`vform_${fId}`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
     
   } catch (e) {
     console.error(e);
