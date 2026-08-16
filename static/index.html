@@ -139,6 +139,11 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
          <label for="globalHeadless" style="font-size:12px; color:#46c8ff; cursor:pointer; margin:0;" title="Chạy ẩn (Headless) giúp nhẹ máy nhưng vẫn đảm bảo tác vụ thành công">Chạy Ẩn Chrome</label>
       </div>
       
+      <div style="display:flex; align-items:center; gap:6px; border:1px solid #334155; padding: 4px 8px; border-radius: 6px; background: #1e293b;">
+         <label for="globalMaxRetries" style="font-size:12px; color:#f59e0b; margin:0;" title="Số lần thử lại tối đa cho mỗi thẻ">Thử Lại Max:</label>
+         <input type="number" id="globalMaxRetries" value="20" min="1" max="999" onchange="saveUIState(); updateMaxRetries()" style="width:40px; background:transparent; border:1px solid #475569; color:#fff; border-radius:4px; text-align:center; font-size:12px; outline:none;">
+      </div>
+      
       <div style="display:flex; align-items:center; gap:6px; border:1px solid #334155; padding: 4px 8px; border-radius: 6px; background: #1e293b; margin-right: 12px; cursor:pointer;" title="Bấm để chọn thư mục lưu (Để trống = lưu vào mục Downloads của máy)" onclick="selectFolder()">
          <span style="font-size:14px;">📁</span>
          <input type="text" id="globalVideoSavePath" placeholder="Thư mục lưu (Mặc định: Downloads)" oninput="saveUIState()" style="background:transparent; border:none; color:#e2e8f0; font-size:12px; width:170px; outline:none; pointer-events:none;">
@@ -916,6 +921,7 @@ function saveUIState() {
   const state = {
     globalVideoSavePath: document.getElementById("globalVideoSavePath") ? document.getElementById("globalVideoSavePath").value : "",
     globalHeadless: document.getElementById("globalHeadless") ? document.getElementById("globalHeadless").checked : false,
+    globalMaxRetries: document.getElementById("globalMaxRetries") ? parseInt(document.getElementById("globalMaxRetries").value) : 20,
     cards: []
   };
   
@@ -985,6 +991,10 @@ function restoreStateStr(saved) {
       if (state.hasOwnProperty("globalHeadless")) {
           const gh = document.getElementById("globalHeadless");
           if(gh) gh.checked = state.globalHeadless;
+      }
+      if (state.hasOwnProperty("globalMaxRetries")) {
+          const gm = document.getElementById("globalMaxRetries");
+          if(gm) gm.value = state.globalMaxRetries;
       }
       
       document.getElementById("videoFormsContainer").innerHTML = "";
@@ -1207,7 +1217,22 @@ document.addEventListener('DOMContentLoaded', () => {
   if(localStorage.getItem('globalAutoFp') === 'true') document.getElementById('globalAutoFp').checked = true;
   if(localStorage.getItem('globalAutoSignup') === 'true') document.getElementById('globalAutoSignup').checked = true;
   if(localStorage.getItem('globalExtBtn2') === 'true') document.getElementById('globalExtBtn2').checked = true;
+  
+  // Also push max retries to backend on load if valid
+  setTimeout(() => updateMaxRetries(), 1000);
 });
+
+function updateMaxRetries() {
+    const el = document.getElementById('globalMaxRetries');
+    if (!el) return;
+    const val = parseInt(el.value) || 20;
+    const fd = new FormData();
+    fd.append('val', val);
+    fetch('/api/settings/max_retries', {
+        method: 'POST',
+        body: fd
+    }).catch(console.error);
+}
 
 // Tự động dừng phát video khi thoát chế độ toàn màn hình
 document.addEventListener("fullscreenchange", function() {

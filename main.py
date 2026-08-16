@@ -493,6 +493,15 @@ import uuid as uuid_module
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
+GLOBAL_MAX_RETRIES = 20
+
+@app.post("/api/settings/max_retries")
+def set_max_retries(val: int = Form(...)):
+    global GLOBAL_MAX_RETRIES
+    if val > 0:
+        GLOBAL_MAX_RETRIES = val
+    return {"ok": True}
+
 def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False, is_headless=False):
     """Mở trình duyệt với Random FP và kích hoạt extension
     only_navigator=True: chỉ bật nút 1 (Spoof Navigator) - dùng khi cần tải ảnh
@@ -564,27 +573,27 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         except:
             pass
             
-        # Lần 1 (attempt=1) -> Tắt hết
-        # Lần 2 (attempt=2) -> Bật (Nút 1 ON, Nút 2 tuỳ enable_ext_btn2)
-        # Lần 3 (attempt=3) -> Tắt hết
-        # Lần 4 (attempt=4) -> Bật...
-        turn_on = (attempt > 1 and attempt % 2 == 0)
+        # Lần 1: OFF, OFF (0)
+        # Lần 2: ON, OFF (1)
+        # Lần 3: OFF, ON (2)
+        # Lần 4: ON, ON (3)
+        state = (attempt - 1) % 4
+        btn1_on = (state == 1 or state == 3)
+        btn2_on = (state == 2 or state == 3)
         
         script = f"""() => {{
             const navBtn = document.querySelector('#spoofNav');
             const canBtn = document.querySelector('#spoofCanvas');
             
-            if ({'true' if turn_on else 'false'}) {{
-                // Bật
+            if ({'true' if btn1_on else 'false'}) {{
                 if (navBtn && !navBtn.classList.contains('btn-danger')) navBtn.click();
-                if ({'true' if enable_ext_btn2 else 'false'}) {{
-                    if (canBtn && !canBtn.classList.contains('btn-danger')) canBtn.click();
-                }} else {{
-                    if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click();
-                }}
             }} else {{
-                // Tắt hết
                 if (navBtn && navBtn.classList.contains('btn-danger')) navBtn.click();
+            }}
+            
+            if ({'true' if btn2_on else 'false'}) {{
+                if (canBtn && !canBtn.classList.contains('btn-danger')) canBtn.click();
+            }} else {{
                 if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click();
             }}
         }}"""
@@ -895,23 +904,14 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
         return
 
     ext_path = str((Path(BASE_DIR) / "data" / "extensions" / "fingerprint_spoofer").absolute())
-    MAX_RETRIES = 20
+    global GLOBAL_MAX_RETRIES
 
     video_tasks[task_id] = {"status": "running", "message": "Đang mở trình duyệt..."}
 
     try:
         with sync_playwright() as p:
-            # Lần 1 -> Tắt hết (attempt=1)
             context = _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=enable_ext_btn2, is_headless=is_headless)
             page = context.new_page()
-            
-            # Dọn dẹp ĐÓNG HẾT các tab cũ (nếu có) để gọn gàng, chỉ giữ lại tab page vừa tạo
-            try:
-                for pg in context.pages:
-                    if pg != page:
-                        try: pg.close()
-                        except: pass
-            except: pass
 
             # Ghi nhớ các video URL cũ đang có sẵn (để không bắt nhầm video cũ)
             video_tasks[task_id] = {"status": "running", "message": "Đang truy cập bfl.ai..."}
@@ -994,7 +994,16 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                 return
 
             video_url = None
-            for attempt in range(1, MAX_RETRIES + 1):
+            attempt = 0
+            while True:
+                attempt += 1
+                MAX_RETRIES = GLOBAL_MAX_RETRIES
+                if attempt > MAX_RETRIES:
+                    video_tasks[task_id] = {"status": "error", "message": f"Đã thử {MAX_RETRIES} lần nhưng không tạo được video hoặc server quá tải liên tục."}
+                    try: context.close()
+                    except: pass
+                    return
+
                 video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Đang nhấn Generate..."}
 
                 # Click Generate
@@ -1062,13 +1071,6 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                 # NẾU TÌM THẤY VIDEO URL THÌ XONG!
                 if video_url:
                     break
-                    
-                # NẾU CHƯA XONG MÀ HẾT 10 LẦN THỬ THÌ BÁO LỖI
-                if attempt >= MAX_RETRIES:
-                    video_tasks[task_id] = {"status": "error", "message": f"Đã thử {MAX_RETRIES} lần nhưng không tạo được video hoặc server quá tải liên tục."}
-                    try: context.close()
-                    except: pass
-                    return
 
                 # Nếu bị rate limited hoặc không thấy generating -> Đóng Chrome, đổi FP, mở lại
                 if not rate_limited and not found_generating:
