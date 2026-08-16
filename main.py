@@ -493,7 +493,7 @@ import uuid as uuid_module
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
-def _open_browser_with_fp(p, profile, ext_path, only_navigator=True, close_old_tabs=False, is_headless=False):
+def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False, is_headless=False):
     """Mở trình duyệt với Random FP và kích hoạt extension
     only_navigator=True: chỉ bật nút 1 (Spoof Navigator) - dùng khi cần tải ảnh
     close_old_tabs=True: đóng hết các tab cũ khi mở lên (chỉ dùng cho video creation)
@@ -564,35 +564,34 @@ def _open_browser_with_fp(p, profile, ext_path, only_navigator=True, close_old_t
         except:
             pass
             
-        if only_navigator:
-            # Tắt Canvas nếu đang bật (đảm bảo upload ảnh không bị đen)
-            # Bật Navigator nếu đang tắt
-            try:
-                ext_page.evaluate("""() => {
-                    const navBtn = document.querySelector('#spoofNav');
-                    if (navBtn && !navBtn.classList.contains('btn-danger')) navBtn.click(); // Bật
-                    
-                    const canBtn = document.querySelector('#spoofCanvas');
-                    if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click(); // Tắt
-                }""")
-            except:
-                pass
-        else:
-            # Bật ngẫu nhiên 1 hoặc 2 nút (Dùng cho Retry để lách thuật toán bfl.ai)
-            try:
-                ext_page.evaluate("""() => {
-                    const navBtn = document.querySelector('#spoofNav');
-                    if (navBtn && !navBtn.classList.contains('btn-danger')) navBtn.click(); // Bật
-                    
-                    const canBtn = document.querySelector('#spoofCanvas');
-                    if (Math.random() > 0.5) {
-                        if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click(); // Tắt
-                    } else {
-                        if (canBtn && !canBtn.classList.contains('btn-danger')) canBtn.click(); // Bật
-                    }
-                }""")
-            except:
-                pass
+        # Lần 1 (attempt=1) -> Tắt hết
+        # Lần 2 (attempt=2) -> Bật (Nút 1 ON, Nút 2 tuỳ enable_ext_btn2)
+        # Lần 3 (attempt=3) -> Tắt hết
+        # Lần 4 (attempt=4) -> Bật...
+        turn_on = (attempt > 1 and attempt % 2 == 0)
+        
+        script = f"""() => {{
+            const navBtn = document.querySelector('#spoofNav');
+            const canBtn = document.querySelector('#spoofCanvas');
+            
+            if ({'true' if turn_on else 'false'}) {{
+                // Bật
+                if (navBtn && !navBtn.classList.contains('btn-danger')) navBtn.click();
+                if ({'true' if enable_ext_btn2 else 'false'}) {{
+                    if (canBtn && !canBtn.classList.contains('btn-danger')) canBtn.click();
+                }} else {{
+                    if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click();
+                }}
+            }} else {{
+                // Tắt hết
+                if (navBtn && navBtn.classList.contains('btn-danger')) navBtn.click();
+                if (canBtn && canBtn.classList.contains('btn-danger')) canBtn.click();
+            }}
+        }}"""
+        
+        try:
+            ext_page.evaluate(script)
+        except: pass
                 
         ext_page.close()
     except:
@@ -783,7 +782,7 @@ def _get_new_video_url(page, known_urls: set):
         pass
     return None
 
-def run_video_automation(task_id: str, prompt: str, img1_path: str, img2_path: str, profile_id: str, save_path: str = None, is_headless: bool = False):
+def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save_path, is_headless=False, enable_ext_btn2=False):
     """Background thread: opens bfl.ai và tạo video với logic retry thông minh"""
     from playwright.sync_api import sync_playwright
     import random
@@ -809,8 +808,8 @@ def run_video_automation(task_id: str, prompt: str, img1_path: str, img2_path: s
 
     try:
         with sync_playwright() as p:
-            # Mở trình duyệt - chỉ bật Spoof Navigator (KHÔNG bật Canvas vì cần upload ảnh trước)
-            context = _open_browser_with_fp(p, profile, ext_path, only_navigator=True, is_headless=is_headless)
+            # Lần 1 -> Tắt hết (attempt=1)
+            context = _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=enable_ext_btn2, is_headless=is_headless)
             page = context.new_page()
             
             # Dọn dẹp ĐÓNG HẾT các tab cũ (nếu có) để gọn gàng, chỉ giữ lại tab page vừa tạo
@@ -973,7 +972,7 @@ def run_video_automation(task_id: str, prompt: str, img1_path: str, img2_path: s
 
                 import time
                 time.sleep(2)
-                context = _open_browser_with_fp(p, profile, ext_path, only_navigator=False, is_headless=is_headless)
+                context = _open_browser_with_fp(p, profile, ext_path, attempt=attempt+1, enable_ext_btn2=enable_ext_btn2, is_headless=is_headless)
                 page = context.new_page()
 
                 try:
@@ -1048,7 +1047,8 @@ async def create_video(
     img1: UploadFile = File(None),
     img2: UploadFile = File(None),
     save_path: str = Form(None),
-    is_headless: str = Form("false")
+    is_headless: str = Form("false"),
+    enable_ext_btn2: str = Form("false")
 ):
     # Lấy danh sách các profile đang bận
     used_profiles = set()
@@ -1098,11 +1098,12 @@ async def create_video(
             "img2_path": img2_path,
             "profile_id": profile_id,
             "save_path": save_path,
-            "is_headless": headless_bool
+            "is_headless": headless_bool,
+            "enable_ext_btn2": (enable_ext_btn2.lower() == "true")
         }
     }
     
-    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool), daemon=True)
+    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool, (enable_ext_btn2.lower() == "true")), daemon=True)
     t.start()
     
     return {"ok": True, "task_id": task_id, "profile_id": profile_id}
@@ -1117,7 +1118,7 @@ def retry_video(task_id: str):
     p = task["params"]
     video_tasks[task_id]["status"] = "pending"
     video_tasks[task_id]["message"] = "Đang thử lại..."
-    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False)), daemon=True)
+    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False), p.get("enable_ext_btn2", False)), daemon=True)
     t.start()
     return {"ok": True}
 

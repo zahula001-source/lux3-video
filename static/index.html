@@ -696,6 +696,9 @@ async function startVideoCreationDynamic(fId) {
   const isHeadless = document.getElementById("globalHeadless") ? document.getElementById("globalHeadless").checked : false;
   formData.append("is_headless", isHeadless);
 
+  const enableExtBtn2 = document.getElementById("globalExtBtn2") ? document.getElementById("globalExtBtn2").checked : false;
+  formData.append("enable_ext_btn2", enableExtBtn2);
+
   const img1Src = document.getElementById(`imgPreview1_${fId}`)?.src || "";
   if (img1File) formData.append("img1", img1File);
   else if (img1Src && img1Src.startsWith("data:")) formData.append("img1", dataURLtoBlob(img1Src), "image1.png");
