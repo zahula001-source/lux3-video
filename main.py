@@ -718,31 +718,46 @@ def _fill_form(page, context, ext_path, prompt, img1_path, img2_path, video_task
                 pass
     return True
 
-def _get_generating_status(page) -> str:
+def _get_generating_status(page, target_prompt=None) -> str:
     """Kiểm tra xem có xuất hiện 'GENERATING' hoặc 'QUEUED' ở giữa màn hình không và lấy text"""
     try:
-        result = page.evaluate("""() => {
-            // Tìm node lá cuối cùng chứa đích danh chữ QUEUED hoặc GENERATING
-            const allElements = Array.from(document.querySelectorAll('*'));
-            for (let el of allElements) {
-                if (el.children.length === 0) { // chỉ check element tận cùng
-                    const txt = (el.innerText || "").toUpperCase().trim();
-                    if (txt.startsWith('QUEUED') || txt.startsWith('GENERATING')) {
-                        if (txt.includes('VOLUME')) continue;
-                        
-                        // BẮT BUỘC CẢ CỤM PHẢI CHỨA SỐ (Thời gian đếm ngược)
-                        const parent = el.parentElement;
-                        if (parent) {
-                            const pText = parent.innerText.replace(/\\n/g, ' ');
-                            if (pText.length < 50 && pText.match(/\\d/)) {
-                                return pText;
+        snippet = ""
+        if target_prompt:
+            snippet = " ".join(target_prompt.split())[:30].strip()
+            
+        result = page.evaluate("""(snippet) => {
+            function findStatusText(container) {
+                const allElements = Array.from(container.querySelectorAll('*'));
+                for (let el of allElements) {
+                    if (el.children.length === 0) {
+                        const txt = (el.innerText || "").toUpperCase().trim();
+                        if (txt.startsWith('QUEUED') || txt.startsWith('GENERATING')) {
+                            if (txt.includes('VOLUME')) continue;
+                            const parent = el.parentElement;
+                            if (parent) {
+                                const pText = parent.innerText.replace(/\\n/g, ' ');
+                                if (pText.length < 50 && pText.match(/\\d/)) {
+                                    return pText;
+                                }
                             }
                         }
                     }
                 }
+                return null;
             }
-            return null;
-        }""")
+            
+            if (snippet) {
+                const articles = document.querySelectorAll('article');
+                for (let a of articles) {
+                    if (a.textContent.includes(snippet)) {
+                        return findStatusText(a);
+                    }
+                }
+                return null;
+            } else {
+                return findStatusText(document);
+            }
+        }""", snippet)
         return result
     except:
         return None
@@ -762,22 +777,27 @@ def _is_rate_limited(page) -> bool:
     except:
         return False
 
-def _get_new_video_url(page, known_urls: set):
-    """Lấy URL video MỚI nhất (không phải video cũ đã biết)"""
+def _get_new_video_url(page, target_prompt: str):
+    """Lấy URL video MỚI nhất có chứa prompt tương ứng. Đảm bảo 100% không bắt nhầm video cũ."""
     try:
-        urls = page.evaluate("""() => {
-            const videos = document.querySelectorAll('video');
-            const result = [];
-            videos.forEach(v => {
-                if (v.src && v.src.startsWith('http')) result.push(v.src);
-                const s = v.querySelector('source');
-                if (s && s.src && s.src.startsWith('http')) result.push(s.src);
-            });
-            return result;
-        }""")
-        for url in (urls or []):
-            if url not in known_urls:
-                return url
+        snippet = " ".join(target_prompt.split())[:30].strip()
+        result = page.evaluate("""(snippet) => {
+            const articles = document.querySelectorAll('article');
+            for (let a of articles) {
+                if (a.textContent.includes(snippet)) {
+                    const videos = a.querySelectorAll('video');
+                    for (let v of videos) {
+                        if (v.src && v.src.startsWith('http')) return v.src;
+                        const s = v.querySelector('source');
+                        if (s && s.src && s.src.startsWith('http')) return s.src;
+                    }
+                }
+            }
+            return null;
+        }""", snippet)
+        
+        if result:
+            return result
     except:
         pass
     return None
@@ -913,7 +933,7 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                 
                 for tick in range(30):
                     page.wait_for_timeout(1000)
-                    status_text = _get_generating_status(page)
+                    status_text = _get_generating_status(page, prompt)
                     if status_text:
                         found_generating = True
                         video_tasks[task_id]["message"] = f"Trạng thái: {status_text}"
@@ -931,7 +951,7 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                     for i in range(600):  # đợi tối đa 10 phút
                         page.wait_for_timeout(1000)
 
-                        status_text = _get_generating_status(page)
+                        status_text = _get_generating_status(page, prompt)
                         still_generating = bool(status_text)
                         
                         if still_generating:
@@ -944,15 +964,15 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                             video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Rate limited giữa chừng! Đóng và thử lại..."}
                             break
 
-                        # Đồng thời tìm video mới
-                        new_url = _get_new_video_url(page, known_video_urls)
+                        # Đồng thời tìm video mới (lọc chính xác theo prompt)
+                        new_url = _get_new_video_url(page, prompt)
                         if new_url:
                             video_url = new_url
                             break
 
                         if not still_generating and i > 5:
                             page.wait_for_timeout(2000)
-                            new_url = _get_new_video_url(page, known_video_urls)
+                            new_url = _get_new_video_url(page, prompt)
                             if new_url:
                                 video_url = new_url
                             break
