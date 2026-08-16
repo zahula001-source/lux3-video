@@ -644,15 +644,28 @@ def _handle_auto_login(page, video_tasks, task_id):
             if email:
                 pwd = email.split('@')[0] + '@H1'
                 
-                page.evaluate(f"""(pwd) => {{
-                    const pEl = document.querySelector('input[type="password"], input[name="password"]');
-                    if (pEl) {{
-                        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                        nativeSetter.call(pEl, pwd);
-                        pEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        pEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    }}
-                }}""", pwd)
+                page.wait_for_timeout(500)
+                try:
+                    import random
+                    import time
+                    p_loc = page.locator('input[type="password"], input[name="password"]')
+                    p_loc.wait_for(state="visible", timeout=5000)
+                    p_loc.click()
+                    time.sleep(0.5)
+                    for char in pwd:
+                        p_loc.press_sequentially(char)
+                        time.sleep(random.uniform(0.05, 0.25))
+                except:
+                    # Fallback nếu click/type lỗi
+                    page.evaluate(f"""(pwd) => {{
+                        const pEl = document.querySelector('input[type="password"], input[name="password"]');
+                        if (pEl) {{
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                            nativeSetter.call(pEl, pwd);
+                            pEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            pEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }}
+                    }}""", pwd)
                 
                 page.wait_for_timeout(500)
                 
