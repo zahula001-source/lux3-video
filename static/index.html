@@ -1087,6 +1087,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if(localStorage.getItem('globalExtBtn2') === 'true') document.getElementById('globalExtBtn2').checked = true;
 });
 
+// Tự động dừng phát video khi thoát chế độ toàn màn hình
+document.addEventListener("fullscreenchange", function() {
+    if (!document.fullscreenElement) {
+        document.querySelectorAll('video').forEach(v => v.pause());
+    }
+});
+
 </script>
 
 <!-- Custom Context Menu for Image -->
