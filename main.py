@@ -853,6 +853,7 @@ def _get_new_video_url(page, target_prompt: str):
                         const s = v.querySelector('source');
                         if (s && s.src && s.src.startsWith('http')) return s.src;
                     }
+                    return null; // CHỈ kiểm tra thẻ mới nhất (trên cùng), nếu chưa có video thì trả về null chờ tiếp, TUYỆT ĐỐI KHÔNG xét tới các thẻ cũ bên dưới!
                 }
             }
             return null;
@@ -906,6 +907,13 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
             video_tasks[task_id] = {"status": "running", "message": "Đang truy cập bfl.ai..."}
             page.goto("https://dashboard.bfl.ai/playground?model=flux-3", wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(3000)
+
+            # Đợi lịch sử load xong hoàn toàn trước khi lấy known_video_urls
+            try:
+                page.wait_for_selector('article', timeout=15000)
+            except:
+                pass
+            page.wait_for_timeout(2000)
 
             # Ghi nhớ video cũ đang hiển thị trước khi Generate
             known_video_urls = set()
