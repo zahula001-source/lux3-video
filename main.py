@@ -898,6 +898,7 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
     else:
         save_path = str(Path(save_path))
 
+    manager.randomize_fingerprint(profile_id)
     profile = manager.get_profile(profile_id)
     if not profile:
         video_tasks[task_id] = {"status": "error", "message": "Profile not found"}
