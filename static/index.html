@@ -25,6 +25,13 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
 .btn-success{background:#10b981;color:#fff;}
 .btn-danger{background:#ef4444;color:#fff;}
 .btn-warning{background:#f59e0b;color:#000;}
+
+@media (max-width: 768px) {
+    .video-form-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+    }
+}
 .btn-purple{background:#8b5cf6;color:#fff;}
 .btn-blue{background:#3b82f6;color:#fff;}
 .search-box{background:#151a27;border:1px solid #242e44;border-radius:10px;padding:10px 14px;color:#fff;width:340px;outline:none;}
@@ -124,6 +131,7 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
     </div>
     
     <div style="display:inline-flex; align-items:center; gap: 6px;">
+      <button class="btn btn-ghost" style="padding:4px 8px; font-size:12px; height:auto; border-radius:6px; border-color:#334155; background:#1e293b;" onclick="openTelegramModal()">📲 Telegram</button>
       <button class="btn btn-ghost" style="padding:4px 8px; font-size:12px; height:auto; border-radius:6px; border-color:#334155; background:#1e293b;" onclick="openStartupModal()">⚙️ Tabs Mặc Định</button>
       
       <div style="display:flex; align-items:center; gap:6px; border:1px solid #334155; padding: 4px 8px; border-radius: 6px; background: #1e293b;">
@@ -273,6 +281,34 @@ body{background:#0b0e14;color:#e5e7eb;min-height:100vh;}
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
       <button class="btn btn-ghost" onclick="closeStartupModal()">Hủy</button>
       <button class="btn btn-primary" onclick="saveStartupConfig()">Lưu Cấu Hình</button>
+    </div>
+  </div>
+</div>
+
+<div id="telegramModal" class="modal-overlay" onclick="if(event.target==this) closeTelegramModal()">
+  <div class="modal">
+    <h2>📲 Cấu hình gửi video tự động qua Telegram</h2>
+    <p style="font-size:12px;color:#94a3b8;margin-bottom:12px;">
+      Video tải về thành công sẽ tự động được gửi qua Bot Telegram.
+    </p>
+    <div class="form-group" style="margin-bottom:12px;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#10b981; font-weight:bold;">
+        <input type="checkbox" id="tgEnable" style="width:16px;height:16px;"> Bật tính năng gửi qua Telegram
+      </label>
+    </div>
+    <div class="form-group">
+      <label>Bot Token</label>
+      <input id="tgToken" class="input" placeholder="VD: 123456789:ABCDefgh...">
+    </div>
+    <div class="form-group">
+      <label>Chat ID</label>
+      <input id="tgChatId" class="input" placeholder="VD: 987654321 hoặc -100123456">
+      <div class="hint">Nhập ID của tài khoản hoặc Group nhận video.</div>
+    </div>
+    
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn btn-ghost" onclick="closeTelegramModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveTelegramConfig()">Lưu Cấu Hình</button>
     </div>
   </div>
 </div>
@@ -544,9 +580,13 @@ function clearVideoForm() {
 }
 
 let formCounter = 0;
-async function addVideoForm() {
+let isAddingForm = false;
+async function addVideoForm(force_fId = null) {
+  if (isAddingForm && force_fId === null) return;
+  if (force_fId === null) isAddingForm = true;
+  
   formCounter++;
-  const fId = formCounter;
+  const fId = force_fId || formCounter;
   
   try {
     const res = await fetch('/api/profiles/free');
@@ -560,7 +600,10 @@ async function addVideoForm() {
     
     if (trulyFree.length === 0) {
       alert("Hết Profile Chrome rảnh! Vui lòng tạo thêm Profile trước khi mở thẻ mới!");
-      formCounter--;
+      if (force_fId === null) {
+          formCounter--;
+          isAddingForm = false;
+      }
       return;
     }
     
@@ -568,7 +611,7 @@ async function addVideoForm() {
       <div id="vform_${fId}" style="background:#151a27;border:1px solid #212a3d;border-radius:14px;padding:16px;position:relative;">
         <button class="btn btn-ghost" style="position:absolute;top:8px;right:8px;padding:4px 8px;color:#ef4444;height:auto;" onclick="document.getElementById('vform_${fId}').remove()" title="Đóng thẻ này">✕</button>
         
-        <div style="display:grid;grid-template-columns:1fr 1fr 200px 120px 120px;gap:12px;align-items:end;margin-top:10px;">
+        <div class="video-form-grid" style="display:grid;grid-template-columns:1fr 1fr 200px 120px 120px;gap:12px;align-items:end;margin-top:10px;">
           <!-- Prompt -->
           <div class="form-group" style="margin:0;">
             <label>📝 Prompt mô tả video</label>
@@ -632,6 +675,10 @@ async function addVideoForm() {
     
   } catch (e) {
     console.error(e);
+  } finally {
+    if (force_fId === null) {
+        setTimeout(() => { isAddingForm = false; }, 300);
+    }
   }
 }
 
@@ -701,6 +748,9 @@ async function startVideoCreationDynamic(fId) {
 
   const enableExtBtn2 = document.getElementById("globalExtBtn2") ? document.getElementById("globalExtBtn2").checked : false;
   formData.append("enable_ext_btn2", enableExtBtn2);
+  formData.append('telegram_enabled', localStorage.getItem('tgEnable') === "true" ? "true" : "false");
+  formData.append('telegram_token', localStorage.getItem('tgToken') || "");
+  formData.append('telegram_chat_id', localStorage.getItem('tgChatId') || "");
 
   const img1Src = document.getElementById(`imgPreview1_${fId}`)?.src || "";
   if (img1File) formData.append("img1", img1File);
@@ -1020,6 +1070,22 @@ function loadUnfinishedUIState() {
   } catch(e) {
       alert("Lỗi khôi phục: " + e.message);
   }
+}
+
+function openTelegramModal() {
+    document.getElementById('tgEnable').checked = localStorage.getItem("tgEnable") === "true";
+    document.getElementById('tgToken').value = localStorage.getItem("tgToken") || "";
+    document.getElementById('tgChatId').value = localStorage.getItem("tgChatId") || "";
+    document.getElementById('telegramModal').style.display = 'flex';
+}
+function closeTelegramModal() {
+    document.getElementById('telegramModal').style.display = 'none';
+}
+function saveTelegramConfig() {
+    localStorage.setItem("tgEnable", document.getElementById('tgEnable').checked);
+    localStorage.setItem("tgToken", document.getElementById('tgToken').value.trim());
+    localStorage.setItem("tgChatId", document.getElementById('tgChatId').value.trim());
+    closeTelegramModal();
 }
 
 async function selectFolder() {

@@ -865,7 +865,17 @@ def _get_new_video_url(page, target_prompt: str):
         pass
     return None
 
-def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save_path, is_headless=False, enable_ext_btn2=False):
+def _send_video_to_telegram(video_path, token, chat_id):
+    if not token or not chat_id: return
+    try:
+        import requests
+        url = f"https://api.telegram.org/bot{token}/sendVideo"
+        with open(video_path, 'rb') as f:
+            requests.post(url, data={"chat_id": chat_id}, files={"video": f}, timeout=30)
+    except Exception as e:
+        print(f"Lỗi gửi Telegram: {e}")
+
+def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save_path, is_headless=False, enable_ext_btn2=False, tg_enabled=False, tg_token="", tg_chat_id=""):
     """Background thread: opens bfl.ai và tạo video với logic retry thông minh"""
     from playwright.sync_api import sync_playwright
     import random
@@ -965,6 +975,8 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                                             with open(out_file, "wb") as f:
                                                 f.write(resp.body())
                                             old_video_urls.append(f"/api/video/download/old_{task_id}_{uid}?path={urllib.parse.quote(str(out_file))}")
+                                            if tg_enabled:
+                                                _send_video_to_telegram(str(out_file), tg_token, tg_chat_id)
                                     except Exception as e:
                                         pass
                                 known_video_urls.update(current_videos)
@@ -1108,6 +1120,8 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
                     if resp.ok:
                         with open(out_file, "wb") as f:
                             f.write(resp.body())
+                        if tg_enabled:
+                            _send_video_to_telegram(str(out_file), tg_token, tg_chat_id)
                         all_urls = old_video_urls + [f"/api/video/download/{task_id}?path={urllib.parse.quote(str(out_file))}"]
                         video_tasks[task_id] = {"status": "done", "result_urls": all_urls, "message": "🎉 Video tạo xong!"}
                     else:
@@ -1149,7 +1163,10 @@ async def create_video(
     img2: UploadFile = File(None),
     save_path: str = Form(None),
     is_headless: str = Form("false"),
-    enable_ext_btn2: str = Form("false")
+    enable_ext_btn2: str = Form("false"),
+    telegram_enabled: str = Form("false"),
+    telegram_token: str = Form(""),
+    telegram_chat_id: str = Form("")
 ):
     # Lấy danh sách các profile đang bận
     used_profiles = set()
@@ -1200,11 +1217,14 @@ async def create_video(
             "profile_id": profile_id,
             "save_path": save_path,
             "is_headless": headless_bool,
-            "enable_ext_btn2": (enable_ext_btn2.lower() == "true")
+            "enable_ext_btn2": (enable_ext_btn2.lower() == "true"),
+            "tg_enabled": (telegram_enabled.lower() == "true"),
+            "tg_token": telegram_token,
+            "tg_chat_id": telegram_chat_id
         }
     }
     
-    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool, (enable_ext_btn2.lower() == "true")), daemon=True)
+    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool, (enable_ext_btn2.lower() == "true"), (telegram_enabled.lower() == "true"), telegram_token, telegram_chat_id), daemon=True)
     t.start()
     
     return {"ok": True, "task_id": task_id, "profile_id": profile_id}
@@ -1219,7 +1239,7 @@ def retry_video(task_id: str):
     p = task["params"]
     video_tasks[task_id]["status"] = "pending"
     video_tasks[task_id]["message"] = "Đang thử lại..."
-    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False), p.get("enable_ext_btn2", False)), daemon=True)
+    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False), p.get("enable_ext_btn2", False), p.get("tg_enabled", False), p.get("tg_token", ""), p.get("tg_chat_id", "")), daemon=True)
     t.start()
     return {"ok": True}
 
