@@ -545,23 +545,11 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         channel="chrome",
         ignore_default_args=ignore_args,
         args=args,
-        # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)
     )
-
-    # Ép Chrome tải file thẳng về thư mục Downloads mà không cần thông qua Playwright
-    try:
-        _cdp = context.new_cdp_session(context.pages[0])
-        _cdp.send('Browser.setDownloadBehavior', {
-            'behavior': 'allow',
-            'downloadPath': str(Path.home() / "Downloads"),
-            'eventsEnabled': False
-        })
-    except Exception as e:
-        print(f"Lỗi CDP: {e}")
-
-    # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash
-
-
+    
+    
+    
+    # Kích hoạt extension Fingerprint Spoofer
     try:
         import random
         ext_page = context.new_page()
@@ -2470,7 +2458,7 @@ if __name__ == "__main__":
                 
     import threading
     threading.Thread(target=_watch_downloads_folder, daemon=True).start()
-    
+
     import uvicorn
     print("""
 ╔══════════════════════════════════════════════════╗

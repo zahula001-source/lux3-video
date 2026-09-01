@@ -135,21 +135,23 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
         if proxy:
             launch_args["proxy"] = proxy
 
+        # Ép Chrome tải về thư mục Downloads bằng cách sửa file Preferences
+        try:
+            import json
+            prefs_file = Path(user_data_dir) / "Default" / "Preferences"
+            if prefs_file.exists():
+                prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+                if "download" not in prefs: prefs["download"] = {}
+                prefs["download"]["default_directory"] = str(Path.home() / "Downloads").replace('\\\\', '/')
+                prefs["download"]["prompt_for_download"] = False
+                prefs_file.write_text(json.dumps(prefs), encoding="utf-8")
+        except: pass
+
         log("Launching...")
         context = p.chromium.launch_persistent_context(**launch_args)
         
         try:
             Path(user_data_dir, "cdp_port.txt").write_text(str(cdp_port))
-        except: pass
-
-        # Ep Chrome tai file thang ve thu muc Downloads (bo qua Playwright de khong crash)
-        try:
-            _cdp = context.new_cdp_session(context.pages[0])
-            _cdp.send('Browser.setDownloadBehavior', {
-                'behavior': 'allow',
-                'downloadPath': str(Path.home() / "Downloads"),
-                'eventsEnabled': False
-            })
         except: pass
 
         log(f"Launched, pages={len(context.pages)}")
