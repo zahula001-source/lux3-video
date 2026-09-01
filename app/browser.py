@@ -49,7 +49,7 @@ def clean_session_hard(user_data_dir):
         prefs = {
             "session": {
                 "restore_on_startup": 0,
-                "startup_urls": ["https://google.com"]
+                "startup_urls": ["https://www.dola.com/chat/"]
             },
             "startup_pages_migration_time": 0,
             "browser": {
@@ -121,6 +121,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append(f'            "--load-extension={ext_path_fs}",')
     lines.append(f'            "--window-size={sw},{sh}",')
     lines.append(f'            "--remote-debugging-port={port}",')
+    lines.append('            "--lang=vi-VN",')
+    lines.append('            "--accept-lang=vi-VN,vi",')
     lines.append("        ]")
     lines.append("        launch_args = dict(")
     lines.append("            user_data_dir=user_data_dir,")
@@ -144,40 +146,23 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
+        # Gán handler download để Playwright KHÔNG crash/đóng tab khi user download file
+        # Playwright mặc định sẽ throw nếu không có handler - gây Chrome tự đóng!
         def _on_download(download):
-            def _save_download():
-                try:
-                    name = download.suggested_filename
-                    if not "." in name:
-                        new_name = name + ".mp4"
-                        download.save_as(str(Path.home() / "Downloads" / new_name))
-                        # Xóa file trắng (không đuôi) được tải về mặc định (có retry vì Windows lock file)
-                        try:
-                            native_path = Path.home() / "Downloads" / name
-                            import time
-                            for _ in range(20):
-                                if native_path.exists():
-                                    try:
-                                        native_path.unlink()
-                                        break
-                                    except:
-                                        time.sleep(0.5)
-                                else:
-                                    break
-                        except: pass
-                    else:
-                        download.save_as(str(Path.home() / "Downloads" / name))
-                except Exception as e:
-                    log(f"Download err {e}")
-            import threading
-            threading.Thread(target=_save_download, daemon=True).start()
-            
+            try:
+                log(f"[Download] Started: {download.suggested_filename}")
+                # Không cancel, không gọi gì thêm - để Chrome xử lý native
+            except:
+                pass
+        context.on("download", _on_download)
+
+        # Gán handler cho mọi tab mới được mở sau này cũng có download handler
         def _on_page(page):
-            page.on("download", _on_download)
-            
+            try:
+                page.on("download", _on_download)
+            except:
+                pass
         context.on("page", _on_page)
-        for page in context.pages:
-            page.on("download", _on_download)
 
         try:
             # Playwright tự động nhét 1 tab about:blank vào, mình sẽ xóa nó đi nếu có tab cũ được khôi phục
@@ -195,7 +180,7 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
                             pass
             elif len(pages) == 1 and pages[0].url == "about:blank":
                 try:
-                    pages[0].goto("https://google.com", wait_until="domcontentloaded")
+                    pages[0].goto("https://www.dola.com/chat/", wait_until="domcontentloaded")
                 except:
                     pass
         except:
@@ -278,11 +263,42 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
             except:
                 pass
 
-        try:
-            while context.pages:
-                context.pages[0].wait_for_timeout(1000)
-        except:
-            pass
+        # Giữ browser sống cho đến khi đóng HẾT SẠCH tab
+        # Quan trọng: dùng biến 'page_item' thay vì 'p' để tránh shadow biến 'p' của playwright!
+        import time
+        while True:
+            try:
+                # Kiểm tra context đã bị đóng chưa (có thể xảy ra khi download lớn)
+                if context.is_closed():
+                    log("Context closed, exiting loop")
+                    break
+
+                try:
+                    current_pages = context.pages
+                except Exception:
+                    # context.pages có thể throw khi đang download - KHÔNG thoát, tiếp tục đợi
+                    time.sleep(1)
+                    continue
+
+                if not current_pages:
+                    break
+
+                pumped = False
+                for page_item in current_pages:
+                    try:
+                        page_item.wait_for_timeout(500)
+                        pumped = True
+                        break
+                    except Exception:
+                        pass
+
+                if not pumped:
+                    # Nếu tất cả các tab đều bị lỗi (ví dụ do VPN làm rớt mạng hoặc đang download),
+                    # sleep để tránh 100% CPU spin - KHÔNG thoát vòng lặp!
+                    time.sleep(1)
+            except Exception as loop_err:
+                log(f"[Keep-alive] warn: {loop_err}")
+                time.sleep(1)
 except Exception as e:
     log(f"FATAL {e}")
     log(traceback.format_exc())
