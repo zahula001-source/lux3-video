@@ -493,6 +493,18 @@ import uuid as uuid_module
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
+video_tasks_chat: dict = {}
+
+@app.get("/api/tasks/{task_id}/chat")
+def get_task_chat(task_id: str):
+    return video_tasks_chat.get(task_id, {"messages": [], "queue": []})
+
+@app.post("/api/tasks/{task_id}/chat")
+def send_task_chat(task_id: str, payload: dict = Body(...)):
+    if task_id in video_tasks_chat:
+        video_tasks_chat[task_id]["queue"].append(payload.get("message", ""))
+    return {"ok": True}
+
 GLOBAL_MAX_RETRIES = 20
 
 @app.post("/api/settings/max_retries")
@@ -512,58 +524,111 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         "--no-first-run",
         "--no-default-browser-check",
         "--restore-last-session",
-        f"--load-extension={ext_path}",
+        "--lang=vi-VN",
+        "--accept-lang=vi-VN,vi",
     ]
+    ignore_args = []
+    if ext_path:
+        args.append(f"--load-extension={ext_path}")
+        ignore_args = ["--disable-extensions"]
+    else:
+        args.append("--disable-extensions")
     if is_headless:
-        args.append("--headless=new")
+        # Tắt chế độ headless thật để tránh bị website phát hiện/cắt xén DOM
+        # Thay vào đó, đẩy cửa sổ ra tít ngoài màn hình để giấu giao diện đi (vẫn tiết kiệm tài nguyên mà an toàn 100%)
+        args.append("--window-position=-32000,-32000")
+        args.append("--window-size=1366,768")
         
     context = p.chromium.launch_persistent_context(
         profile.user_data_dir,
         headless=False,
         channel="chrome",
-        ignore_default_args=["--disable-extensions"],
+        ignore_default_args=ignore_args,
         args=args,
+        accept_downloads=True,
         downloads_path=str(Path.home() / "Downloads"),
-        accept_downloads=True
     )
+
     
-    # Bắt sự kiện tải file thủ công trên trình duyệt để thêm đuôi .mp4 nếu thiếu
+    # ── DOWNLOAD HANDLER: Tự động gắn đúng đuôi file khi download ──────────
+    # Vấn đề: Playwright/Chrome đôi khi download file không có đuôi (UUID raw)
+    # Fix: Detect từ URL + suggested_filename + mime-type để gán .mp4 / .jpg / .png
     def _on_download(download):
-        def _save_download():
+        def _save_with_ext():
             try:
-                name = download.suggested_filename
-                if not "." in name:
-                    new_name = name + ".mp4"
-                    download.save_as(str(Path.home() / "Downloads" / new_name))
-                    # Xóa file trắng (không đuôi) được tải về mặc định (có retry vì Windows lock file)
-                    try:
-                        native_path = Path.home() / "Downloads" / name
-                        import time
-                        for _ in range(20):
-                            if native_path.exists():
-                                try:
-                                    native_path.unlink()
-                                    break
-                                except:
-                                    time.sleep(0.5)
-                            else:
-                                break
-                    except: pass
-                else:
-                    download.save_as(str(Path.home() / "Downloads" / name))
-            except:
-                pass
+                import os, time, mimetypes
+                from pathlib import Path
+
+                name = download.suggested_filename or "download"
+                url  = download.url or ""
+
+                # --- Bước 1: Lấy đuôi từ suggested_filename ---
+                ext = Path(name).suffix.lower()  # vd: ".mp4", ".jpg", ""
+
+                # --- Bước 2: Nếu chưa có đuôi, đoán từ URL ---
+                if not ext:
+                    url_path = url.split("?")[0].split("#")[0]
+                    url_ext  = Path(url_path).suffix.lower()
+                    if url_ext in (".mp4", ".webm", ".mov", ".avi", ".mkv"):
+                        ext = url_ext
+                    elif url_ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"):
+                        ext = url_ext
+
+                # --- Bước 3: Đoán từ mime-type nếu vẫn chưa có ---
+                if not ext:
+                    mime = download.mime_type or ""
+                    if "video" in mime:
+                        ext = ".mp4"
+                    elif "jpeg" in mime or "jpg" in mime:
+                        ext = ".jpg"
+                    elif "png" in mime:
+                        ext = ".png"
+                    elif "webp" in mime:
+                        ext = ".webp"
+                    elif "gif" in mime:
+                        ext = ".gif"
+                    elif "image" in mime:
+                        ext = ".jpg"   # fallback cho image/*
+                    else:
+                        ext = ".mp4"   # fallback cuối cùng cho file lạ không rõ loại
+
+                # --- Bước 4: Tạo tên file cuối cùng có đuôi ---
+                stem = Path(name).stem or name  # phần tên không có đuôi
+                final_name = stem + ext
+                save_dir   = Path.home() / "Downloads"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                final_path = save_dir / final_name
+
+                # Tránh ghi đè: nếu file đã tồn tại thì thêm số
+                counter = 1
+                while final_path.exists():
+                    final_path = save_dir / f"{stem}_{counter}{ext}"
+                    counter += 1
+
+                download.save_as(str(final_path))
+                print(f"[Download] Saved: {final_path}")
+
+            except Exception as e:
+                print(f"[Download] Error: {e}")
+
         import threading
-        threading.Thread(target=_save_download, daemon=True).start()
-            
+        threading.Thread(target=_save_with_ext, daemon=True).start()
+
     def _on_page(page):
-        page.on("download", _on_download)
-        
+        try:
+            page.on("download", _on_download)
+        except:
+            pass
+
+    context.on("download", _on_download)
     context.on("page", _on_page)
-    for page in context.pages:
-        page.on("download", _on_download)
-    
-    # Kích hoạt extension Fingerprint Spoofer
+    for _pg in context.pages:
+        try:
+            _pg.on("download", _on_download)
+        except:
+            pass
+
+
     try:
         import random
         ext_page = context.new_page()
@@ -620,6 +685,7 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
 
 def _activate_canvas_spoof(context, ext_path):
     """Kích hoạt Spoof Canvas SAU khi đã upload ảnh thành công"""
+    return # Không mở popup extension này nữa theo yêu cầu
     try:
         ext_page = context.new_page()
         ext_page.goto("chrome-extension://facgnnelgcipeopfbjcajpaibhhdjgcp/popup.html", wait_until="load", timeout=5000)
@@ -814,7 +880,6 @@ def _get_generating_status(page, target_prompt=None) -> str:
                         }
                     }
                 }
-                return null;
             }
             
             if (snippet) {
@@ -824,7 +889,6 @@ def _get_generating_status(page, target_prompt=None) -> str:
                         return findStatusText(a);
                     }
                 }
-                return null;
             } else {
                 return findStatusText(document);
             }
@@ -857,15 +921,11 @@ def _get_new_video_url(page, target_prompt: str):
             for (let a of articles) {
                 if (a.textContent.includes(snippet)) {
                     const videos = a.querySelectorAll('video');
-                    for (let v of videos) {
                         if (v.src && v.src.startsWith('http')) return v.src;
-                        const s = v.querySelector('source');
                         if (s && s.src && s.src.startsWith('http')) return s.src;
                     }
-                    return null; // CHỈ kiểm tra thẻ mới nhất (trên cùng), nếu chưa có video thì trả về null chờ tiếp, TUYỆT ĐỐI KHÔNG xét tới các thẻ cũ bên dưới!
                 }
             }
-            return null;
         }""", snippet)
         
         if result:
@@ -884,13 +944,12 @@ def _send_video_to_telegram(video_path, token, chat_id):
     except Exception as e:
         print(f"Lỗi gửi Telegram: {e}")
 
-def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save_path, is_headless=False, enable_ext_btn2=False, tg_enabled=False, tg_token="", tg_chat_id=""):
-    """Background thread: opens bfl.ai và tạo video với logic retry thông minh"""
+def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save_path, is_headless=False, enable_ext=False, enable_ext_btn2=False, tg_enabled=False, tg_token="", tg_chat_id="", video_model="Dreamina Seedance 2.0 Fast", video_duration="10s", video_ratio="9:16"):
+    """Background thread: mở dola.com, đăng nhập Google, upload ảnh, nhập prompt và tạo video."""
     from playwright.sync_api import sync_playwright
-    import random
-    import urllib.request
     import urllib.parse
     import uuid
+    import time
     from pathlib import Path
 
     if not save_path:
@@ -904,255 +963,1035 @@ def run_video_automation(task_id, prompt, img1_path, img2_path, profile_id, save
         video_tasks[task_id] = {"status": "error", "message": "Profile not found"}
         return
 
-    ext_path = str((Path(BASE_DIR) / "data" / "extensions" / "fingerprint_spoofer").absolute())
+    if enable_ext:
+        ext_path = str((Path(BASE_DIR) / "data" / "extensions" / "fingerprint_spoofer").absolute())
+    else:
+        ext_path = None
     global GLOBAL_MAX_RETRIES
 
     video_tasks[task_id] = {"status": "running", "message": "Đang mở trình duyệt..."}
+    video_tasks_chat[task_id] = {"messages": [], "queue": []}
+    is_retrying = False
+
+    def sync_chat(pg):
+        if task_id not in video_tasks_chat: return
+        try:
+            msgs = pg.evaluate("""() => {
+                try {
+                    // CÁCH CHẮC CHẮN NHẤT: Bắt thẳng vào trái tim của mọi tin nhắn (khung chứa chữ)
+                    let textContainers = Array.from(document.querySelectorAll('.container-enLQFx, .container-fBOrXO, [data-message-id]'));
+                    
+                    if (textContainers.length === 0) return [{role: "bot", text: "DEBUG: Không tìm thấy bất kỳ thẻ text nào trong DOM!"}];
+
+                    const results = textContainers.map(node => {
+                        // Tránh lấy trùng lặp nếu querySelectorAll lấy cả cha lẫn con
+                        // Ưu tiên lấy text từ container trong cùng
+                        let txt = node.innerText || node.textContent || "";
+                        txt = txt.replace('Tải về cho Windows', '').trim();
+                        
+                        // Xác định User/Bot bằng cách dò ngược lên các thẻ cha xem có đặc điểm của User không
+                        const isUser = node.classList.contains('justify-end') || 
+                                       (node.closest && node.closest('.justify-end') !== null) ||
+                                       (node.parentElement && node.parentElement.classList.contains('justify-end'));
+                                       
+                        return { role: isUser ? "user" : "bot", text: txt };
+                    }).filter(Boolean);
+                    
+                    if (results.length === 0) return [{role: "bot", text: `DEBUG: Tìm thấy ${textContainers.length} thẻ nhưng bị filter do rỗng!`}];
+                    
+                    // Lọc bỏ các tin nhắn bị trùng lặp (giữ lại cái dài nhất nếu bị lồng nhau)
+                    const uniqueResults = [];
+                    for(let r of results) {
+                        const existing = uniqueResults.find(x => x.text === r.text || x.text.includes(r.text) || r.text.includes(x.text));
+                        if(!existing) {
+                            uniqueResults.push(r);
+                        } else if (r.text.length > existing.text.length) {
+                            // Cập nhật lại nếu tìm thấy chuỗi bao hàm dài hơn
+                            existing.text = r.text;
+                        }
+                    }
+                    return uniqueResults;
+                } catch(e) {
+                    return [{role: "bot", text: "Lỗi bóc tách: " + e.message}];
+                }
+            }""")
+            if msgs is not None:
+                video_tasks_chat[task_id]["messages"] = msgs
+            
+            while len(video_tasks_chat[task_id]["queue"]) > 0:
+                msg = video_tasks_chat[task_id]["queue"].pop(0)
+                try:
+                    input_loc = pg.locator("div[contenteditable='true']").first
+                    input_loc.fill(msg)
+                    pg.wait_for_timeout(500)
+                    input_loc.press("Enter")
+                except: pass
+        except: pass
 
     try:
         with sync_playwright() as p:
             context = _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=enable_ext_btn2, is_headless=is_headless)
-            page = context.new_page()
+            
+            # Tái sử dụng tab đầu tiên nếu có để tránh mở nhiều tab
+            if context.pages:
+                page = context.pages[0]
+            else:
+                page = context.new_page()
+                
+            # Đóng các tab dư thừa
+            for i in range(1, len(context.pages)):
+                try: context.pages[i].close()
+                except: pass
 
-            # Ghi nhớ các video URL cũ đang có sẵn (để không bắt nhầm video cũ)
-            video_tasks[task_id] = {"status": "running", "message": "Đang truy cập bfl.ai..."}
-            page.goto("https://dashboard.bfl.ai/playground?model=flux-3", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(3000)
-
-            # Đợi lịch sử load xong hoàn toàn trước khi lấy known_video_urls
+            # Xóa triệt để dấu vết của phiên làm việc cũ với Dola (Giữ nguyên Google)
+            video_tasks[task_id] = {"status": "running", "message": "Đang giả lập máy tính hoàn toàn mới (Clear Cookies)..."}
             try:
-                page.wait_for_selector('article', timeout=15000)
+                # 1. Xóa sạch mọi cookie ngoại trừ google.com
+                cookies = context.cookies()
+                filtered_cookies = [c for c in cookies if "google.com" in c["domain"] or "youtube.com" in c["domain"]]
+                context.clear_cookies()
+                if filtered_cookies:
+                    context.add_cookies(filtered_cookies)
+                
+                # 2. Xóa sạch Local Storage & Session Storage của Dola
+                try:
+                    page.goto("https://www.dola.com", wait_until="commit", timeout=15000)
+                    page.evaluate("() => { try { localStorage.clear(); sessionStorage.clear(); } catch(e) {} }")
+                except: pass
+            except Exception as e:
+                print(f"Lỗi khi xóa dấu vết Dola: {e}")
+
+            # ── BƯỚC 1: Mở dola.com/chat ──────────────────────────────────
+            video_tasks[task_id] = {"status": "running", "message": "Đang mở dola.com/chat..."}
+            page.goto("https://www.dola.com/chat", wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_timeout(2000)
+            
+            # Xử lý trang lỗi "This page is temporarily unavailable"
+            try:
+                if page.locator("text='This page is temporarily unavailable'").is_visible(timeout=3000):
+                    video_tasks[task_id] = {"status": "running", "message": "Dola bị lỗi tạm thời, đang ấn Refresh..."}
+                    page.locator("button:has-text('Refresh')").click(timeout=3000)
+                    page.wait_for_timeout(5000)
             except:
                 pass
-            page.wait_for_timeout(2000)
 
-            # Ghi nhớ video cũ đang hiển thị trước khi Generate
-            known_video_urls = set()
+            def check_age_popup(pg):
+                try:
+                    pg.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button, div[role="button"], span'));
+                        const confirmBtn = btns.reverse().find(el => el.innerText && (
+                            el.innerText.trim() === 'Confirm' || 
+                            el.innerText.trim() === 'Xác nhận' ||
+                            el.innerText.trim() === 'OK' ||
+                            el.innerText.trim() === 'Ok'
+                        ));
+                        if (confirmBtn) {
+                            confirmBtn.click();
+                            console.log("Clicked Confirm Age popup!");
+                        }
+                    }""")
+                except:
+                    pass
+
+            # ── BƯỚC 2: Kiểm tra đã login chưa (Dựa vào sự tồn tại của nút Log In) ──
+            video_tasks[task_id] = {"status": "running", "message": "Kiểm tra trạng thái đăng nhập..."}
+            already_logged_in = False
             try:
-                existing = page.evaluate("""() => {
-                    return Array.from(document.querySelectorAll('video')).map(v => v.src || '').filter(s => s.startsWith('http'));
-                }""")
-                known_video_urls = set(existing or [])
-            except:
-                known_video_urls = set()
-
-            old_video_urls = []
-            
-            def _clear_old_videos():
-                nonlocal known_video_urls
-                page.wait_for_timeout(2000)
-                initial_status = _get_generating_status(page)
-                if initial_status:
-                    video_tasks[task_id] = {"status": "running", "message": f"Phát hiện tiến trình cũ: {initial_status}. Đang chờ hoàn thành trước..."}
-                    for i in range(600):
-                        page.wait_for_timeout(1000)
-                        st = _get_generating_status(page)
-                        if st:
-                            video_tasks[task_id]["message"] = f"Đang chờ tiến trình cũ: {st}"
-                        else:
-                            break
+                # Đợi cho trang load xong và các phần tử ổn định
+                try:
+                    page.wait_for_load_state("load", timeout=10000) # Dùng load thay vì networkidle cho lẹ
+                except:
+                    pass
+                
+                # ── BƯỚC 2: Kiểm tra đã login chưa (Kiểm tra Avatar -> Settings) ──
+                is_logged_in = False
+                try:
+                    # Tìm nút Avatar (Mở rộng selector để bao quát cả giao diện Dola mới)
+                    avatar_loc = page.locator('button[aria-haspopup="menu"], button:has(.rounded-full), div[role="button"]:has(.rounded-full), button:has(img.rounded-full)').filter(has_not_text=re.compile(r"^(Đăng nhập|Log In|Sign In)$", re.IGNORECASE)).last
                     
-                    video_tasks[task_id]["message"] = "Đang dọn dẹp video cũ..."
-                    # Đợi tối đa 20s để thẻ <video> của video cũ xuất hiện
-                    for _ in range(20):
+                    if avatar_loc.is_visible(timeout=2000):
+                        avatar_loc.click(timeout=3000)
                         page.wait_for_timeout(1000)
+                        
+                        # Kiểm tra xem có menu Settings/Cài đặt/Đăng xuất/Công việc xổ ra không
+                        has_settings = page.evaluate("""() => {
+                            const allBtns = Array.from(document.querySelectorAll('button, p, div, span, a'));
+                            return allBtns.some(b => b.innerText && (
+                                b.innerText.trim() === 'Settings' || 
+                                b.innerText.trim() === 'Cài đặt' || 
+                                b.innerText.trim() === 'Đăng xuất' || 
+                                b.innerText.trim() === 'Log out' ||
+                                b.innerText.trim() === 'Tài khoản' ||
+                                b.innerText.trim() === 'Account'
+                            ));
+                        }""")
+                        
+                        if has_settings:
+                            is_logged_in = True
+                            page.mouse.click(0, 0) # Click ra ngoài để đóng menu
+                            page.wait_for_timeout(500)
+                except:
+                    pass
+                
+                already_logged_in = is_logged_in
+                print(f"--- [BƯỚC 2] Kết quả quét trạng thái: {'ĐÃ LOGIN TỪ TRƯỚC' if already_logged_in else 'CHƯA LOGIN (Sẽ chạy Bước 3 & 4)'}")
+            except Exception as e:
+                print(f"--- Lỗi kiểm tra login: {e}")
+                already_logged_in = False
+
+            if not already_logged_in:
+                # Quét xem có modal "Log In to Unlock More Features" đang mở sẵn không
+                is_modal_open = False
+                try:
+                    is_modal_open = page.locator("text='Log In to Unlock More Features'").is_visible(timeout=2000)
+                except:
+                    pass
+                
+                if not is_modal_open:
+                    # ── BƯỚC 3: Ấn "Đăng nhập" / "Log In" ───────────────────────
+                    video_tasks[task_id] = {"status": "running", "message": "Đang mở bảng Đăng nhập..."}
+                    
+                    try:
+                        # Vòng lặp ấn nút Log In cho đến khi bảng hiện ra (tối đa 5 lần)
+                        for _ in range(5):
+                            # Tìm nút Log In (thường nằm góc phải trên cùng)
+                            login_btn = page.locator("button, a").filter(has_text=re.compile(r"^(Đăng nhập|Log In|Login|Sign In)$", re.IGNORECASE)).first
+                            if login_btn.is_visible():
+                                box = login_btn.bounding_box()
+                                if box:
+                                    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                                    page.wait_for_timeout(300)
+                                    page.mouse.down()
+                                    page.wait_for_timeout(150)
+                                    page.mouse.up()
+                                    page.wait_for_timeout(500)
+                                    # Fallback click JS nếu mouse click bị xịt
+                                    page.evaluate("""(btn) => { if(btn) btn.click(); }""", login_btn.element_handle())
+                            else:
+                                # Nếu không thấy nút Log In, thử tìm nút bất kỳ ở góc trên bên phải
+                                page.evaluate("""() => {
+                                    const btns = Array.from(document.querySelectorAll('button'));
+                                    const loginBtn = btns.find(b => b.innerText && b.innerText.toLowerCase().includes('log'));
+                                    if(loginBtn) loginBtn.click();
+                                }""")
+                            
+                            page.wait_for_timeout(2000) # Đợi 2s để bảng bung ra rồi check lại
+                            
+                            try:
+                                is_modal = page.locator("text='Log In to Unlock More Features'").is_visible(timeout=1000)
+                                if is_modal:
+                                    print("--- Đã thấy bảng Log In to Unlock More Features!")
+                                    break
+                            except:
+                                pass
+                    except Exception as e:
+                        print(f"--- Lỗi khi ấn nút Log In: {e}")
+                else:
+                    print("--- Bảng đăng nhập đã mở sẵn!")
+
+                # ── BƯỚC 4: Ấn "Continue with Google" / "Tiếp tục bằng Google" ──
+                try:
+                    video_tasks[task_id] = {"status": "running", "message": "Đang dò tọa độ nút Google để click thật..."}
+                    
+                    # Chờ 3s cho popup có thời gian bung ra hoàn chỉnh
+                    page.wait_for_timeout(3000)
+                    
+                    # Dùng JS lấy tọa độ (x, y, width, height) của nút thay vì click ảo bằng JS (vì JS click ảo bị web bỏ qua)
+                    js_get_rect = """
+                    () => {
+                        let btn = document.evaluate(
+                          "//button[.//*[normalize-space()='Continue with Google']]",
+                          document,
+                          null,
+                          XPathResult.FIRST_ORDERED_NODE_TYPE,
+                          null
+                        ).singleNodeValue;
+                        
+                        if (!btn) {
+                            const btns = Array.from(document.querySelectorAll('button'));
+                            btn = btns.find(b => b.innerText && b.innerText.includes('Google'));
+                        }
+                        
+                        if (btn) {
+                            const rect = btn.getBoundingClientRect();
+                            return {
+                                x: rect.x,
+                                y: rect.y,
+                                width: rect.width,
+                                height: rect.height,
+                                found: true
+                            };
+                        }
+                        return { found: false };
+                    }
+                    """
+                    
+                    success_click = False
+                    for i in range(15): # Lặp 15 lần (tối đa 30s)
                         try:
-                            new_existing = page.evaluate("""() => {
-                                return Array.from(document.querySelectorAll('video')).map(v => v.src || '').filter(s => s.startsWith('http'));
+                            rect_info = page.evaluate(js_get_rect)
+                            if rect_info and rect_info.get("found"):
+                                # Dùng Playwright di chuột VẬT LÝ đến tọa độ tâm nút và nhấp đúp như người thật
+                                center_x = rect_info["x"] + rect_info["width"] / 2
+                                center_y = rect_info["y"] + rect_info["height"] / 2
+                                
+                                page.mouse.move(center_x, center_y, steps=10)
+                                page.wait_for_timeout(500)
+                                
+                                # Click lần 1
+                                page.mouse.down()
+                                page.wait_for_timeout(100)
+                                page.mouse.up()
+                                page.wait_for_timeout(200)
+                                
+                                # Click lần 2
+                                page.mouse.down()
+                                page.wait_for_timeout(150)
+                                page.mouse.up()
+                                
+                                # Kiểm tra xem bảng popup đã biến mất chưa (chứng tỏ click ăn, mở popup Google)
+                                page.wait_for_timeout(3000)
+                                check_still_there = page.evaluate(js_get_rect)
+                                if not check_still_there.get("found"):
+                                    print(f"--- [BƯỚC 4] Đã CLICK THẬT thành công nút Google ở lần thử {i+1}!")
+                                    success_click = True
+                                    break
+                                else:
+                                    print(f"--- [BƯỚC 4] Lần {i+1}: Đã ấn chuột vật lý nhưng popup chưa tắt, thử lại...")
+                            else:
+                                print(f"--- [BƯỚC 4] Lần {i+1}: Chưa thấy nút Google. Có thể do click Log In hụt, đang thử click lại Log In...")
+                                try:
+                                    # Tìm nút bằng nhiều cách để chắc chắn không trượt
+                                    login_btn = page.locator('button:has-text("Log In"), button:has-text("Login"), .login-btn-header-CTKsn1').first
+                                    if login_btn.is_visible(timeout=500):
+                                        box = login_btn.bounding_box()
+                                        if box:
+                                            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                                            page.wait_for_timeout(200)
+                                            page.mouse.down()
+                                            page.wait_for_timeout(100)
+                                            page.mouse.up()
+                                except:
+                                    pass
+                        except Exception as js_err:
+                            print(f"--- [BƯỚC 4] Lỗi JS lần {i+1}: {js_err}")
+                        
+                        page.wait_for_timeout(2000)
+                    
+                    if not success_click:
+                        # CHẶN CHẠY MÙ QUÁNG: Báo lỗi và dừng tiến trình
+                        video_tasks[task_id] = {"status": "error", "message": "Lỗi: Quá thời gian chờ nút Continue with Google."}
+                        print("====== [LỖI] KHÔNG THỂ ẤN NÚT GOOGLE, DỪNG TIẾN TRÌNH TRÁNH CHẠY MÙ QUÁNG ======")
+                        return
+                    
+                    # Đã click thành công, chờ Google Auth xử lý
+                    page.wait_for_timeout(6000)
+                except Exception as e:
+                    print(f"\n====== LỖI BƯỚC 4 ======\n{str(e)}\n========================\n")
+                    video_tasks[task_id] = {"status": "error", "message": f"Lỗi ở bước đăng nhập Google: {str(e)}"}
+                    return # Ngăn chạy tiếp xuống các bước tạo video
+
+                # ── BƯỚC 5 & 6: Xử lý Xác nhận tuổi (nếu có) và Chờ đăng nhập thành công ──
+                video_tasks[task_id] = {"status": "running", "message": "Đang chờ đăng nhập hoàn tất..."}
+                try:
+                    page.wait_for_timeout(4000) # Đợi trang load xong sau khi Auth
+                    
+                    login_success = False
+                    for _ in range(15): # Lặp tối đa ~30s
+                        # 0. Quét xem có bị báo lỗi Limit từ server Dola không
+                        try:
+                            limit_msg = page.evaluate("""() => {
+                                const texts = ['Maximum number of attempts reached', "Couldn't load", 'experiencing high demand'];
+                                return texts.find(t => document.body && document.body.innerText.includes(t));
                             }""")
-                            current_videos = set(new_existing or [])
-                            new_vids = current_videos - known_video_urls
-                            if new_vids:
-                                import uuid
-                                import urllib.parse
-                                out_dir = Path(save_path)
-                                out_dir.mkdir(parents=True, exist_ok=True)
-                                for nv in new_vids:
-                                    uid = str(uuid.uuid4())[:8]
-                                    out_file = out_dir / f"old_{task_id}_{uid}.mp4"
-                                    try:
-                                        resp = context.request.get(nv)
-                                        if resp.ok:
-                                            with open(out_file, "wb") as f:
-                                                f.write(resp.body())
-                                            old_video_urls.append(f"/api/video/download/old_{task_id}_{uid}?path={urllib.parse.quote(str(out_file))}")
-                                            if tg_enabled:
-                                                _send_video_to_telegram(str(out_file), tg_token, tg_chat_id)
-                                    except Exception as e:
-                                        pass
-                                known_video_urls.update(current_videos)
-                                break
+                            if limit_msg:
+                                video_tasks[task_id] = {"status": "limit", "message": f"Tài khoản đã bị Limit: {limit_msg}"}
+                                print(f"====== [LIMIT] TÀI KHOẢN BỊ GIỚI HẠN: {limit_msg} ======")
+                                return
                         except: pass
+                        
+                        # 1. Quét xem có dialog xác nhận tuổi không, nếu có thì click
+                        check_age_popup(page)
+                        
+                        page.wait_for_timeout(1000)
+                        
+                        # 2. Bấm vào nút Avatar bằng Playwright (như người thật) thay vì JS
+                        try:
+                            # Nút button có aria-haspopup="menu" và chứa thẻ img.rounded-full
+                            avatar_loc = page.locator('button[aria-haspopup="menu"]:has(img.rounded-full)').first
+                            if avatar_loc.count() > 0:
+                                avatar_loc.click(timeout=2000)
+                        except:
+                            pass
+                            
+                        page.wait_for_timeout(1000)
+                        
+                        # 3. Kiểm tra xem menu Settings có xổ ra không
+                        has_settings = page.evaluate("""() => {
+                            const allBtns = Array.from(document.querySelectorAll('button, p, div, span'));
+                            return allBtns.some(b => b.innerText && (b.innerText.includes('Settings') || b.innerText.includes('Cài đặt')));
+                        }""")
+                        
+                        if has_settings:
+                            login_success = True
+                            # Click ra ngoài để đóng menu Settings
+                            page.mouse.click(0, 0)
+                            page.wait_for_timeout(500)
+                            break
+                            
+                        page.wait_for_timeout(1000)
 
-            # Gọi dọn dẹp ở lần đầu
-            _clear_old_videos()
-
-            # Điền form lần đầu
-            video_tasks[task_id] = {"status": "running", "message": "Đang điền thông tin..."}
-            if not _fill_form(page, context, ext_path, prompt, img1_path, img2_path, video_tasks, task_id):
-                video_tasks[task_id] = {"status": "error", "message": "Không load được trang bfl.ai. Hãy đăng nhập trước!"}
-                context.close()
-                return
-
-            video_url = None
-            attempt = 0
-            while True:
-                attempt += 1
-                MAX_RETRIES = GLOBAL_MAX_RETRIES
-                if attempt > MAX_RETRIES:
-                    video_tasks[task_id] = {"status": "error", "message": f"Đã thử {MAX_RETRIES} lần nhưng không tạo được video hoặc server quá tải liên tục."}
+                    if login_success:
+                        video_tasks[task_id] = {"status": "running", "message": "✅ Đăng nhập thành công! Đang chuẩn bị tạo video..."}
+                    else:
+                        raise Exception("Không tìm thấy menu Settings, đăng nhập có thể đã thất bại.")
+                        
+                except Exception as e:
+                    video_tasks[task_id] = {"status": "error", "message": f"Đăng nhập thất bại: {e}"}
                     try: context.close()
                     except: pass
                     return
+            else:
+                video_tasks[task_id] = {"status": "running", "message": "✅ Đã đăng nhập sẵn! Đang chuẩn bị tạo video..."}
 
-                video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Đang nhấn Generate..."}
+            page.wait_for_timeout(1500)
 
-                # Click Generate
+            # ĐỀ PHÒNG WEB TỰ VĂNG (LOGOUT)
+            if "from_logout=1" in page.url or page.evaluate("() => Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('Continue with Google'))"):
+                raise Exception("Tài khoản Dola bị văng (Logout) giữa chừng. Vui lòng tắt và CHẠY LẠI profile này!")
+
+            # ── BƯỚC 7: Ấn nút "Tạo video" trong thanh công cụ ──────────────
+            video_tasks[task_id] = {"status": "running", "message": "Đang ấn nút 'Tạo video'..."}
+            try:
+                page.locator("button[data-skill-id='skill_bar_button_17']").click(timeout=8000)
+                page.wait_for_timeout(1000)
+            except:
                 try:
-                    gen_btn = page.locator("button[aria-label='Generate']")
-                    gen_btn.wait_for(state="visible", timeout=5000)
-                    gen_btn.click()
-                except:
                     page.evaluate("""() => {
-                        const btn = document.querySelector("button[aria-label='Generate']");
+                        const all = Array.from(document.querySelectorAll('button'));
+                        const btn = all.find(el => el.innerText && el.innerText.trim().includes('Tạo video'));
                         if (btn) btn.click();
                     }""")
-
-                # Chờ tối đa 30s để thấy "GENERATING... • time"
-                video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Chờ GENERATING... (tối đa 30s)..."}
-                found_generating = False
-                rate_limited = False
-                
-                for tick in range(30):
                     page.wait_for_timeout(1000)
-                    status_text = _get_generating_status(page, prompt)
-                    if status_text:
-                        found_generating = True
-                        video_tasks[task_id]["message"] = f"Trạng thái: {status_text}"
-                        break
-                    
-                    if _is_rate_limited(page):
-                        rate_limited = True
-                        video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Server BFL báo quá tải! Đóng và thử lại ngay..."}
-                        break
-                    video_tasks[task_id]["message"] = f"Lần thử {attempt}/{MAX_RETRIES}: Chờ GENERATING... {tick+1}s/30s"
+                except:
+                    pass
 
-                # NẾU THẤY QUEUED/GENERATING THÌ VÀO VÒNG LẶP CHỜ 10 PHÚT
-                if found_generating:
-                    video_tasks[task_id] = {"status": "running", "message": "✅ GENERATING... đã xác nhận! Đang đợi video hoàn thành..."}
-                    for i in range(600):  # đợi tối đa 10 phút
-                        page.wait_for_timeout(1000)
-
-                        status_text = _get_generating_status(page, prompt)
-                        still_generating = bool(status_text)
-                        
-                        if still_generating:
-                            video_tasks[task_id]["message"] = f"Trạng thái trên web: {status_text}"
-                        else:
-                            video_tasks[task_id]["message"] = f"Đang chờ video hiển thị... {i//60:02d}:{i%60:02d}"
-
-                        if _is_rate_limited(page):
-                            rate_limited = True
-                            video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Rate limited giữa chừng! Đóng và thử lại..."}
-                            break
-
-                        # Đồng thời tìm video mới (lọc chính xác theo prompt)
-                        new_url = _get_new_video_url(page, prompt)
-                        if new_url:
-                            video_url = new_url
-                            break
-
-                        if not still_generating and i > 5:
-                            page.wait_for_timeout(2000)
-                            new_url = _get_new_video_url(page, prompt)
-                            if new_url:
-                                video_url = new_url
-                            break
-                            
-                # NẾU TÌM THẤY VIDEO URL THÌ XONG!
-                if video_url:
-                    break
-
-                # Nếu bị rate limited hoặc không thấy generating -> Đóng Chrome, đổi FP, mở lại
-                if not rate_limited and not found_generating:
-                    video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt}/{MAX_RETRIES}: Không thấy GENERATING, đang đóng và mở lại Chrome..."}
+            # ── BƯỚC 7.5: Chọn Model, Duration, Ratio ──────────────
+            video_tasks[task_id] = {"status": "running", "message": "Đang chọn cài đặt video..."}
+            try:
+                # Chọn Model
+                if video_model:
+                    page.locator('button[data-input-engine-actionbar-control-key="video-model"]').click(timeout=3000)
+                    page.wait_for_timeout(500)
+                    page.evaluate(f"""(text) => {{
+                        const items = Array.from(document.querySelectorAll('div[role="menuitem"], div[role="menuitemradio"], div[role="option"], button'));
+                        const item = items.find(el => el.innerText && el.innerText.trim().includes(text));
+                        if(item) item.click();
+                    }}""", video_model)
+                    page.wait_for_timeout(500)
                 
-                try: context.close()
-                except: pass
+                # Chọn Duration
+                if video_duration:
+                    page.locator('button[data-input-engine-actionbar-control-key="video-duration"]').click(timeout=3000)
+                    page.wait_for_timeout(500)
+                    page.evaluate(f"""(text) => {{
+                        const items = Array.from(document.querySelectorAll('div[role="menuitem"], div[role="menuitemradio"], div[role="option"], button'));
+                        const item = items.find(el => el.innerText && el.innerText.trim() === text);
+                        if(item) item.click();
+                    }}""", video_duration)
+                    page.wait_for_timeout(500)
+                    
+                # Chọn Ratio
+                if video_ratio:
+                    page.locator('button[data-input-engine-actionbar-control-key="video-ratio"]').click(timeout=3000)
+                    page.wait_for_timeout(500)
+                    page.evaluate(f"""(text) => {{
+                        const items = Array.from(document.querySelectorAll('div[role="menuitem"], div[role="menuitemradio"], div[role="option"], button'));
+                        const item = items.find(el => el.innerText && el.innerText.trim() === text);
+                        if(item) item.click();
+                    }}""", video_ratio)
+                    page.wait_for_timeout(500)
+            except Exception as e:
+                print(f"Lỗi khi chọn thông số video: {e}")
+                pass # Bỏ qua nếu lỗi, web có thể dùng mặc định
 
-                manager.randomize_fingerprint(profile_id)
-                profile = manager.get_profile(profile_id)
+            # ĐỀ PHÒNG WEB TỰ VĂNG (LOGOUT)
+            if "from_logout=1" in page.url or page.evaluate("() => Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('Continue with Google'))"):
+                raise Exception("dola_logout")
 
-                import time
-                time.sleep(2)
-                context = _open_browser_with_fp(p, profile, ext_path, attempt=attempt+1, enable_ext_btn2=enable_ext_btn2, is_headless=is_headless)
-                page = context.new_page()
+            # ── BƯỚC 8: Upload ảnh (ấn nút "+") ─────────────────────────────
+            images_to_upload = []
+            if img1_path and Path(img1_path).exists():
+                images_to_upload.append(img1_path)
+            if img2_path and Path(img2_path).exists():
+                images_to_upload.append(img2_path)
 
+            if images_to_upload:
+                video_tasks[task_id] = {"status": "running", "message": f"Đang tải {len(images_to_upload)} ảnh lên..."}
                 try:
-                    for pg in context.pages:
-                        if pg != page:
-                            try: pg.close()
-                            except: pass
-                except: pass
+                    # Nút "+" là input[type=file] ẩn, trigger qua file chooser
+                    with page.expect_file_chooser(timeout=8000) as fc_info:
+                        # Click nút "+" (button đầu tiên trong input boundary)
+                        page.locator("div[data-guidance-input-boundary='true'] button").first.click()
+                    fc_info.value.set_files(images_to_upload)
+                    page.wait_for_timeout(2000)
+                    video_tasks[task_id] = {"status": "running", "message": f"✅ Đã tải lên {len(images_to_upload)} ảnh!"}
+                except:
+                    try:
+                        # Fallback: set trực tiếp vào input file
+                        file_input = page.locator("input[type='file']").first
+                        file_input.set_input_files(images_to_upload)
+                        page.wait_for_timeout(2000)
+                        video_tasks[task_id] = {"status": "running", "message": f"✅ Đã tải lên {len(images_to_upload)} ảnh (fallback)!"}
+                    except Exception as e:
+                        video_tasks[task_id] = {"status": "running", "message": f"Cảnh báo: Không tải được ảnh - {e}"}
 
-                video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt+1}/{MAX_RETRIES}: Đang truy cập lại bfl.ai..."}
-                page.goto("https://dashboard.bfl.ai/playground?model=flux-3", wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(3000)
+            # ĐỀ PHÒNG WEB TỰ VĂNG (LOGOUT)
+            if "from_logout=1" in page.url or page.evaluate("() => Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('Continue with Google'))"):
+                raise Exception("Tài khoản Dola bị văng (Logout) giữa chừng. Vui lòng tắt và CHẠY LẠI profile này!")
+                
+            check_age_popup(page)
 
+            # ── BƯỚC 9: Nhập prompt vào ô chat ──────────────────────────────
+            video_tasks[task_id] = {"status": "running", "message": "Đang nhập prompt..."}
+            try:
+                editor = page.locator("div[contenteditable='true']").first
+                editor.click(timeout=5000)
+                page.wait_for_timeout(300)
+                
+                # Dùng execCommand để PASTE nguyên cục text có xuống dòng, tránh gõ từng chữ (Enter bị hiểu là "Gửi")
+                page.evaluate("""([el, txt]) => {
+                    el.focus();
+                    // Lệnh insertText hoạt động y hệt như ấn Ctrl+V, sẽ dán nguyên khối văn bản
+                    if (!document.execCommand('insertText', false, txt)) {
+                        // Fallback nếu trình duyệt chặn
+                        el.innerText = txt;
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
+                    }
+                }""", [editor.element_handle(), prompt])
+                
+                page.wait_for_timeout(500)
+            except Exception as e:
+                print(f"Lỗi nhập prompt: {e}")
+
+            # ── BƯỚC 10: Ấn nút Gửi (send button) ──────────────────────────
+            video_tasks[task_id] = {"status": "running", "message": "Đang gửi yêu cầu tạo video..."}
+            try:
+                # Nút gửi có id "flow-end-msg-send"
+                send_btn = page.locator("#flow-end-msg-send")
+                # Đợi nút không bị disabled (sau khi nhập prompt)
+                for _ in range(10):
+                    if video_tasks.get(task_id, {}).get("force_stop"):
+                        raise Exception("force_stop")
+                    is_disabled = send_btn.is_disabled()
+                    if not is_disabled:
+                        break
+                    page.wait_for_timeout(500)
+                    
+                if video_tasks.get(task_id, {}).get("force_stop"):
+                    raise Exception("force_stop")
+                    
+                send_btn.click(timeout=8000)
+                page.wait_for_timeout(1000)
+            except Exception as e:
+                if str(e) == "force_stop":
+                    # Nhảy thẳng xuống cuối (BƯỚC 12)
+                    video_tasks[task_id]["status"] = "done"
+                else:
+                    try:
+                        page.evaluate("""() => {
+                            const btn = document.getElementById('flow-end-msg-send');
+                            if (btn && !btn.disabled) btn.click();
+                        }""")
+                        page.wait_for_timeout(1000)
+                    except:
+                        # Fallback: ấn Enter
+                        try:
+                            page.locator("div[contenteditable='true']").first.press("Enter")
+                            page.wait_for_timeout(1000)
+                        except:
+                            pass
+
+            video_tasks[task_id] = {"status": "running", "message": "✅ Đã gửi yêu cầu! Đang chờ dola.com tạo video..."}
+
+            # ── BƯỚC 11: Đợi video xuất hiện (tối đa 10 phút) ───────────────
+            video_url = None
+            video_urls = []
+            for i in range(600):
+                page.wait_for_timeout(1000)
+                
+                # Cập nhật log chat
+                sync_chat(page)
+                
+                # CHÚ Ý: Đề phòng web tự văng acc giữa chừng (như lúc đang chờ video)
+                if "from_logout=1" in page.url:
+                    raise Exception("dola_logout")
+                    
+                check_age_popup(page)
+                    
+                if video_tasks.get(task_id, {}).get("force_stop"):
+                    print(f"--- Task {task_id} bị force_stop. Thoát vòng lặp chờ video.")
+                    break
+                
                 try:
-                    existing = page.evaluate("""() => {
-                        return Array.from(document.querySelectorAll('video')).map(v => v.src || '').filter(s => s.startsWith('http'));
+                    # Quét xem có popup Log In bất ngờ hiện lên không
+                    new_urls = page.evaluate("""() => {
+                        const extracted = Array.from(document.querySelectorAll('.studio-relay-extracted-video'));
+                        const urls = extracted.map(el => el.getAttribute('data-url')).filter(Boolean);
+                        
+                        const videos = Array.from(document.querySelectorAll('video'));
+                        for (let v of videos) {
+                            if (v.src && (v.src.startsWith('http') || v.src.startsWith('blob'))) urls.push(v.src);
+                            else {
+                                const s = v.querySelector('source');
+                                if (s && s.src && (s.src.startsWith('http') || s.src.startsWith('blob'))) urls.push(s.src);
+                            }
+                        }
+                        return [...new Set(urls)];
                     }""")
-                    known_video_urls = set(existing or [])
-                except: pass
+                    has_login_modal = page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button'));
+                        return btns.some(b => b.innerText && b.innerText.includes('Continue with Google'));
+                    }""")
+                    if has_login_modal:
+                        raise Exception("dola_logout")
+                except Exception as eval_e:
+                    if "dola_logout" in str(eval_e):
+                        raise
+                
+                try:
+                    # Cuộn xuống cuối và Hover để ép Dola tải thẻ video (Lazy load)
+                    page.evaluate("""() => {
+                        // 1. Cuộn màn hình xuống cuối cùng
+                        const scrollers = document.querySelectorAll('.v_list_row, .container-enLQFx, .block-video-MzfWVN, [data-message-id]');
+                        if (scrollers.length > 0) {
+                            scrollers[scrollers.length - 1].scrollIntoView({behavior: 'smooth', block: 'end'});
+                        }
+                        
+                        // 2. Hover vào tất cả các vùng có khả năng chứa video
+                        const targets = document.querySelectorAll('.v_list_row, .block-video-MzfWVN, .image-box-grid-EYaIcP, .video-player-wrapper-IZ7Zoq, .xgplayer');
+                        targets.forEach(t => {
+                            try { t.dispatchEvent(new MouseEvent('mouseover', {bubbles: true})); } catch(e){}
+                        });
+                        
+                        // 3. Click thẳng vào nút Play hoặc ảnh đại diện để ÉP nó tải luồng video (Bắt buộc phải Play mới lấy được link)
+                        const playBtns = document.querySelectorAll('.play-icon-gWzeeV, .xg-icon-play, [aria-label="play"], .video-hover-button-group-container-mh06XY, .image-box-grid-EYaIcP img');
+                        playBtns.forEach(b => {
+                            try { 
+                                b.dispatchEvent(new MouseEvent('mouseover', {bubbles: true})); 
+                                b.click(); // Phải CLICK thì xgplayer mới bơm link vào thẻ <video>
+                            } catch(e){}
+                        });
+                    }""")
+                    page.wait_for_timeout(1000) # Chờ 1 giây để nó nạp link sau khi click
+                except:
+                    pass
 
-                # Bắt buộc dọn dẹp video cũ trong retry để tránh bắt nhầm
-                _clear_old_videos()
+                try:
+                    new_url = page.evaluate("""() => {
+                        const extracted = Array.from(document.querySelectorAll('.studio-relay-extracted-video'));
+                        const urls = extracted.map(el => el.getAttribute('data-url')).filter(Boolean);
+                        const videos = Array.from(document.querySelectorAll('video'));
+                        for (let v of videos) { if (v.src && (v.src.startsWith('http') || v.src.startsWith('blob'))) urls.push(v.src); else { const s = v.querySelector('source'); if (s && s.src && (s.src.startsWith('http') || s.src.startsWith('blob'))) urls.push(s.src); } }
+                        return [...new Set(urls)];
+                    }""")
+                    if new_url and len(new_url) > 0:
+                        video_urls = new_url
+                        video_url = new_url[0]
+                        break
+                except:
+                    pass
 
-                video_tasks[task_id] = {"status": "running", "message": f"Lần thử {attempt+1}/{MAX_RETRIES}: Đang kiểm tra form..."}
-                _fill_form(page, context, ext_path, prompt, img1_path, img2_path, video_tasks, task_id, is_retry=True)
+                mins = i // 60
+                secs = i % 60
+                video_tasks[task_id]["message"] = f"Đang chờ dola.com tạo video... {mins:02d}:{secs:02d}"
 
-            if video_url:
-                import urllib.parse
+            if video_urls:
                 out_dir = Path(save_path)
                 out_dir.mkdir(parents=True, exist_ok=True)
-                out_file = out_dir / f"{task_id}.mp4"
-                
+                all_result_urls = []
                 try:
-                    resp = context.request.get(video_url)
-                    if resp.ok:
-                        with open(out_file, "wb") as f:
-                            f.write(resp.body())
+                    for v_idx, v_url in enumerate(video_urls):
+                        video_url = v_url
+                        out_file = out_dir / (f"{task_id}.mp4" if len(video_urls) == 1 else f"{task_id}_{v_idx+1}.mp4")
+                        if video_url.startswith("blob:"):
+                            b64_data = page.evaluate("""async (url) => {
+                                const response = await fetch(url);
+                                const blob = await response.blob();
+                                return new Promise((resolve, reject) => {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => resolve(reader.result);
+                                    reader.onerror = reject;
+                                    reader.readAsDataURL(blob);
+                                });
+                            }""", video_url)
+                            import base64
+                            header, encoded = b64_data.split(",", 1)
+                            with open(out_file, "wb") as f:
+                                f.write(base64.b64decode(encoded))
+                        else:
+                            # DỰ PHÒNG 3 LỚP ĐỂ TẢI VIDEO THÀNH CÔNG 100%
+                            success = False
+                            err_msg = ""
+                            
+                            # Lớp 1: Tải bằng Playwright API (thêm User-Agent và Referer để tránh bị CDN block gây lỗi ETIMEDOUT)
+                            try:
+                                ua = page.evaluate("navigator.userAgent")
+                                resp = context.request.get(video_url, headers={
+                                    "User-Agent": ua,
+                                    "Referer": "https://dola.com/",
+                                    "Accept": "*/*"
+                                }, timeout=60000)
+                                if resp.ok:
+                                    with open(out_file, "wb") as f:
+                                        f.write(resp.body())
+                                    success = True
+                                else:
+                                    err_msg = f"HTTP {resp.status}"
+                            except Exception as e:
+                                err_msg = str(e)
+                                
+                            # Lớp 2: Nếu Lớp 1 thất bại (bị block kết nối), tải trực tiếp bằng JS trong lòng Page
+                            if not success:
+                                try:
+                                    b64_data = page.evaluate("""async (url) => {
+                                        const response = await fetch(url);
+                                        if (!response.ok) throw new Error('Fetch failed');
+                                        const blob = await response.blob();
+                                        return new Promise((resolve, reject) => {
+                                            const reader = new FileReader();
+                                            reader.onloadend = () => resolve(reader.result);
+                                            reader.onerror = reject;
+                                            reader.readAsDataURL(blob);
+                                        });
+                                    }""", video_url)
+                                    import base64
+                                    header, encoded = b64_data.split(",", 1)
+                                    with open(out_file, "wb") as f:
+                                        f.write(base64.b64decode(encoded))
+                                    success = True
+                                except Exception as e:
+                                    err_msg = f"JS Fetch Lỗi: {e}"
+                                    
+                            # Lớp 3: Phương án cuối cùng, bắn sang tab mới để ép trình duyệt tải
+                            if not success:
+                                try:
+                                    dl_page = context.new_page()
+                                    dl_page.goto(video_url, timeout=30000)
+                                    dl_page.wait_for_timeout(5000)
+                                    # File tải về sẽ rơi vào _on_download event của Playwright, nhưng ta không biết tên file. 
+                                    # Cách tốt nhất là báo lỗi để retry nếu 2 lớp trên thất bại.
+                                    dl_page.close()
+                                    raise Exception(f"Tải video thất bại sau 3 cách. Lỗi gốc: {err_msg}")
+                                except Exception as e:
+                                    raise e
+                                   
+                        # Phần này chạy chung cho cả 2 trường hợp tải thành công (blob hoặc http)
                         if tg_enabled:
                             _send_video_to_telegram(str(out_file), tg_token, tg_chat_id)
-                        all_urls = old_video_urls + [f"/api/video/download/{task_id}?path={urllib.parse.quote(str(out_file))}"]
-                        video_tasks[task_id] = {"status": "done", "result_urls": all_urls, "message": "🎉 Video tạo xong!"}
-                    else:
-                        raise Exception(f"HTTP {resp.status}")
+                        all_urls = [f"/api/video/download/{task_id}?path={urllib.parse.quote(str(out_file))}"]
+                        all_result_urls.extend(all_urls)
+                    video_tasks[task_id]["result_urls"] = all_result_urls
+                    video_tasks[task_id]["message"] = f"🎉 {len(video_urls)} Video tạo xong! Đang hiển thị lên Tool..."
+                    page.wait_for_timeout(3000)
                 except Exception as e:
-                    video_tasks[task_id] = {"status": "error", "message": f"Tạo thành công nhưng tải video thất bại (BFL.ai chặn download): {e}"}
+                    video_tasks[task_id] = {"status": "error", "message": f"Tạo thành công nhưng tải video thất bại: {e}"}
             else:
-                if video_tasks[task_id].get("status") != "error":
-                    if old_video_urls:
-                        video_tasks[task_id] = {"status": "done", "result_urls": old_video_urls, "message": "Chỉ lấy được video cũ. Job mới thất bại!"}
+                if video_tasks.get(task_id, {}).get("force_stop"):
+                    video_tasks[task_id]["message"] = "Đã hủy tiến trình!"
+                    # Không set status = done ở đây, để UI tiếp tục cập nhật tiến trình xóa acc
+                else:
+                    video_tasks[task_id] = {"status": "error", "message": "Timeout 10 phút: Video không xuất hiện trên dola.com."}
+
+            # ── BƯỚC 12: Xóa tài khoản (Delete Account) ─────────
+            video_tasks[task_id]["message"] = video_tasks[task_id].get("message", "") + "\nĐang hủy hoạt động và Xóa tài khoản..."
+            
+            # Thoát khỏi chế độ xem video (Modal/Fullscreen) do lúc nãy ta đã click Play
+            try:
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(500)
+                page.keyboard.press("Escape")
+                # Click chuột ra một góc trống để đảm bảo các menu/modal đang mở sẽ bị đóng
+                page.mouse.click(10, 10)
+                page.wait_for_timeout(1000)
+            except: pass
+            
+            try:
+                # Nếu bị force stop, tải lại trang để HỦY NGAY LẬP TỨC các file đang upload
+                if video_tasks.get(task_id, {}).get("force_stop"):
+                    page.reload(wait_until="domcontentloaded")
+                    page.wait_for_timeout(2000)
+                    
+                # 1. Bấm Avatar (Sử dụng locator chính xác theo DOM của Dola)
+                page.locator("button[aria-haspopup='menu']").filter(has=page.locator("img.rounded-full")).click(timeout=8000)
+                
+                def click_by_coords(texts, selector='button, p, div, span, a', retries=10):
+                    import json, random
+                    for _ in range(retries):
+                        box = page.evaluate(f"""() => {{
+                            const texts = {json.dumps(texts)};
+                            const allBtns = Array.from(document.querySelectorAll('{selector}'));
+                            const btn = allBtns.reverse().find(b => {{
+                                if (!b.innerText) return false;
+                                const rect = b.getBoundingClientRect();
+                                if (rect.width === 0 || rect.height === 0) return false;
+                                const style = window.getComputedStyle(b);
+                                if (style.opacity === '0' || style.visibility === 'hidden' || style.display === 'none') return false;
+                                const text = b.innerText.trim();
+                                return texts.includes(text) || texts.some(t => text === t + ' >' || text === t + ' ❯' || text === t + ' 〉') || texts.some(t => text.includes(t) && text.length <= t.length + 5);
+                            }});
+                            
+                            let clickable = btn;
+                            while(clickable && clickable !== document.body) {{
+                                const style = window.getComputedStyle(clickable);
+                                if (style.cursor === 'pointer' || clickable.tagName === 'BUTTON' || clickable.tagName === 'A') {{
+                                    break;
+                                }}
+                                clickable = clickable.parentElement;
+                            }}
+                            if (!clickable || clickable === document.body) clickable = btn;
+                            
+                            if (clickable.scrollIntoView) {{
+                                clickable.scrollIntoView({{block: 'center', inline: 'center'}});
+                            }}
+                            const rect = clickable.getBoundingClientRect();
+                            return {{
+                                x: rect.x + rect.width / 2,
+                                y: rect.y + rect.height / 2
+                            }};
+                        }}""")
+                        if box:
+                            tx = box['x'] + random.uniform(-2, 2)
+                            ty = box['y'] + random.uniform(-2, 2)
+                            page.mouse.move(tx, ty)
+                            page.wait_for_timeout(100)
+                            # Thực hiện click bằng hàm click chuẩn
+                            page.mouse.click(tx, ty)
+                            return True
+                        page.wait_for_timeout(1000) # Đợi lâu hơn xíu giữa các lần thử
+                    return False
+
+                # 2. Bấm Settings / Cài đặt
+                page.wait_for_timeout(2000)
+                if not click_by_coords(['Settings', 'Cài đặt']): raise Exception("Không tìm thấy nút Settings / Cài đặt")
+                
+                # 3. Bấm Account / Tài khoản
+                page.wait_for_timeout(2000)
+                if not click_by_coords(['Account', 'Tài khoản']): raise Exception("Không tìm thấy nút Account / Tài khoản")
+                
+                # 4. Bấm Delete Account / Xóa tài khoản
+                page.wait_for_timeout(2000)
+                if not click_by_coords(['Delete Account', 'Xóa tài khoản']): raise Exception("Không tìm thấy nút Delete Account / Xóa tài khoản")
+                
+                # 5. Bấm Delete / Xóa
+                page.wait_for_timeout(2000)
+                if not click_by_coords(['Delete', 'Xóa'], 'button'): raise Exception("Không tìm thấy nút Delete / Xóa (Lần 1)")
+                
+                # 5.5. Bấm Xóa trong modal xác nhận nhỏ (Hủy / Xóa)
+                page.wait_for_timeout(2000)
+                print("[XoaNgay] Đang bấm nút Xóa màu đỏ trong modal xác nhận...")
+                try:
+                    clicked_modal = page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button'));
+                        // Tìm các nút có chữ Xóa hoặc Delete chính xác
+                        const deleteBtns = btns.filter(b => b.innerText.trim() === 'Xóa' || b.innerText.trim() === 'Delete');
+                        if (deleteBtns.length > 0) {
+                            // Click nút cuối cùng (thường là nút trong modal vừa hiện ra)
+                            deleteBtns[deleteBtns.length - 1].click();
+                            return true;
+                        }
+                        return false;
+                    }""")
+                    if clicked_modal:
+                        print("[XoaNgay] Đã click nút Xóa trong modal thành công!")
                     else:
-                        video_tasks[task_id] = {"status": "error", "message": "Timeout 10 phút: Video không xuất hiện sau khi GENERATING kết thúc."}
+                        print("[XoaNgay] Không tìm thấy nút Xóa trong modal bằng JS, thử Playwright...")
+                        page.locator('button:has-text("Xóa"), button:has-text("Delete")').last.click(timeout=2000, force=True)
+                except Exception as e:
+                    print(f"[XoaNgay] Lỗi click nút Xóa trong modal: {e}")
+                
+                # 5.6. Bấm Xác nhận (nếu có popup Xác nhận tuổi)
+                page.wait_for_timeout(2000)
+                try:
+                    clicked_confirm = page.evaluate("""() => {
+                        const btns = Array.from(document.querySelectorAll('button'));
+                        const confirmBtns = btns.filter(b => b.innerText.trim() === 'Xác nhận' || b.innerText.trim() === 'Confirm');
+                        if (confirmBtns.length > 0) {
+                            confirmBtns[confirmBtns.length - 1].click();
+                            return true;
+                        }
+                        return false;
+                    }""")
+                    if clicked_confirm:
+                        print("[XoaNgay] Đã click nút Xác nhận tuổi!")
+                except Exception as e:
+                    pass
+                
+                # 6. Bấm Xóa ngay - Dùng kịch bản ElementFromPoint siêu việt của User
+                print("[XoaNgay] Đang bắt đầu bấm Xóa ngay bằng kịch bản ElementFromPoint...")
+                
+                success = False
+                for attempt in range(6):
+                    page.wait_for_timeout(2000)
+                    frames_list = page.frames
+                    print(f"[XoaNgay] Attempt {attempt+1}: Bơm mã JS vào tất cả {len(frames_list)} frames (như Extension)...")
+                    
+                    js_code = """
+                        async () => {
+                          const logo = document.querySelector("img.icon-ieQdCp");
+                          if (!logo) return "KhongThayLogo";
+
+                          // Vị trí: dưới logo 30px
+                          const r = logo.getBoundingClientRect();
+                          const size = 50;
+                          const x = r.left + (r.width - size) / 2;
+                          const y = r.bottom + 30;
+
+                          // Tạo highlight
+                          document.getElementById("test-square-highlight")?.remove();
+
+                          const square = document.createElement("div");
+                          square.id = "test-square-highlight";
+
+                          Object.assign(square.style, {
+                            position: "fixed",
+                            left: `${x}px`,
+                            top: `${y}px`,
+                            width: `${size}px`,
+                            height: `${size}px`,
+                            boxSizing: "border-box",
+                            border: "4px solid #ff0033",
+                            borderRadius: "4px",
+                            background: "rgba(255, 0, 51, .18)",
+                            boxShadow: "0 0 18px 7px rgba(255, 0, 51, .75)",
+                            zIndex: "2147483647",
+                            pointerEvents: "none"
+                          });
+
+                          document.body.appendChild(square);
+                          console.log("Đã highlight. Sẽ click sau 1.5 giây.");
+
+                          await new Promise(resolve => setTimeout(resolve, 1500));
+
+                          // Ẩn overlay để lấy chính phần tử phía dưới tâm ô
+                          square.style.display = "none";
+                          const target = document.elementFromPoint(x + size / 2, y + size / 2);
+                          square.remove();
+
+                          if (!target) return "KhongCoPhanTu";
+
+                          const clickable = target.closest(
+                            ".confirm-button-ZuDQ59, [role='button'], button, a, [onclick]"
+                          ) || target;
+
+                          console.log("Đang click phần tử:", clickable);
+                          clickable.click();
+                          
+                          return "DaClick";
+                        }
+                    """
+                    
+                    clicked_this_round = False
+                    for f in frames_list:
+                        try:
+                            result = f.evaluate(js_code)
+                            if result == "DaClick":
+                                print(f"     -> [Tuyệt vời] Đã vẽ highlight và CLICK TRÚNG ĐÍCH trong frame: {f.name or f.url}")
+                                clicked_this_round = True
+                                break
+                        except Exception:
+                            # Frame có thể bị huỷ hoặc lỗi kết nối, bỏ qua
+                            pass
+                            
+                    if clicked_this_round:
+                        page.wait_for_timeout(3000)
+                        # Kiểm tra xem logo có biến mất khỏi tất cả frames chưa
+                        still_there = False
+                        for f in page.frames:
+                            try:
+                                has_logo = f.evaluate('() => !!document.querySelector("img.icon-ieQdCp")')
+                                if has_logo:
+                                    still_there = True
+                                    break
+                            except: pass
+                            
+                        if not still_there:
+                            success = True
+                            print("[XoaNgay] Xác nhận cửa sổ Xóa ngay đã đóng -> THÀNH CÔNG!")
+                            break
+                        else:
+                            print("[XoaNgay] Vẫn còn thấy Logo, click chưa ăn hoặc mạng lag...")
+                
+                if not success:
+                    print("[XoaNgay] Cảnh báo: Vượt quá số lần thử click Xóa ngay!")
+                
+                page.wait_for_timeout(2000)
+
+
+                
+                # Đợi web load và kiểm tra trạng thái Đăng xuất (chứng tỏ đã xóa thành công)
+                try:
+                    page.wait_for_timeout(3000)
+                    # Kiểm tra xem có xuất hiện nút "Đăng nhập" (Login) hoặc có chuyển hướng URL from_logout không
+                    page.evaluate("""() => {
+                        const all = document.body.innerText;
+                        const hasLoginBtn = all.includes('Đăng nhập') || all.includes('Log in') || all.includes('Sign in');
+                        const isLoggedOutUrl = window.location.href.includes('from_logout');
+                        
+                        if (!hasLoginBtn && !isLoggedOutUrl && !all.includes('Account deleted') && !all.includes('đã xóa') && !all.includes('deleted')) {
+                            throw new Error('Chưa thấy dấu hiệu đăng xuất/xóa tài khoản');
+                        }
+                    }""")
+                    page.wait_for_timeout(1000) # Thêm 1 giây cho chắc cú sau khi thông báo hiện
+                except Exception as e:
+                    print(f"Chưa thấy dấu hiệu xóa thành công, đợi thêm 5s: {e}")
+                    page.wait_for_timeout(5000)
+                    # Lần 2 bắt buộc phải có, nếu không có quăng lỗi để ra catch
+                    page.evaluate("""() => {
+                        const all = document.body.innerText;
+                        const hasLoginBtn = all.includes('Đăng nhập') || all.includes('Log in') || all.includes('Sign in');
+                        const isLoggedOutUrl = window.location.href.includes('from_logout');
+                        
+                        if (!hasLoginBtn && !isLoggedOutUrl && !all.includes('Account deleted') && !all.includes('đã xóa') && !all.includes('deleted')) {
+                            throw new Error('Timeout: Không thấy thông báo hoặc dấu hiệu xóa thành công (chưa thấy nút Đăng nhập)!');
+                        }
+                    }""")
+                video_tasks[task_id]["message"] = video_tasks[task_id]["message"].replace("Đang hủy hoạt động và Xóa tài khoản...", "Đã xóa Account thành công!")
+            except Exception as del_err:
+                print(f"Lỗi khi xóa account: {del_err}")
+                video_tasks[task_id]["message"] = video_tasks[task_id]["message"].replace("Đang hủy hoạt động và Xóa tài khoản...", "Gặp lỗi khi xóa Account!")
+                
+            # Đánh dấu done ở bước cuối cùng
+            video_tasks[task_id]["status"] = "done"
 
             try: context.close()
             except: pass
 
     except Exception as e:
+        # Bắt buộc đóng trình duyệt ngay lập tức nếu có lỗi hoặc văng để retry có thể lấy FP mới
+        try: context.close()
+        except: pass
+        
+        if "dola_logout" in str(e):
+            print(f"--- Bị văng! Báo cho frontend tự động thử lại task {task_id}...")
+            video_tasks[task_id] = {
+                "status": "dola_logout", 
+                "message": "Bị văng khỏi tài khoản, đang tự động thử lại bằng vân tay (Fingerprint) Chrome hoàn toàn mới..."
+            }
+            return
         video_tasks[task_id] = {"status": "error", "message": f"Lỗi hệ thống: {e}"}
-    
+
     finally:
         # Tự động xóa ảnh upload sau khi task xong để tiết kiệm dung lượng
-        for img_path in [img1_path, img2_path]:
-            if img_path:
-                try:
-                    p = Path(img_path)
-                    if p.exists():
-                        p.unlink()
-                except: pass
+        # Nếu đang báo frontend retry thì KHÔNG xóa ảnh
+        if video_tasks.get(task_id, {}).get("status") != "dola_logout":
+            for img_path in [img1_path, img2_path]:
+                if img_path:
+                    try:
+                        p = Path(img_path)
+                        if p.exists():
+                            p.unlink()
+                    except: pass
 
 
 
@@ -1166,10 +2005,14 @@ async def create_video(
     img2: UploadFile = File(None),
     save_path: str = Form(None),
     is_headless: str = Form("false"),
+    enable_ext: str = Form("false"),
     enable_ext_btn2: str = Form("false"),
     telegram_enabled: str = Form("false"),
     telegram_token: str = Form(""),
-    telegram_chat_id: str = Form("")
+    telegram_chat_id: str = Form(""),
+    video_model: str = Form("Dreamina Seedance 2.0 Fast"),
+    video_duration: str = Form("10s"),
+    video_ratio: str = Form("9:16")
 ):
     # Lấy danh sách các profile đang bận
     used_profiles = set()
@@ -1220,14 +2063,18 @@ async def create_video(
             "profile_id": profile_id,
             "save_path": save_path,
             "is_headless": headless_bool,
+            "enable_ext": (enable_ext.lower() == "true"),
             "enable_ext_btn2": (enable_ext_btn2.lower() == "true"),
             "tg_enabled": (telegram_enabled.lower() == "true"),
             "tg_token": telegram_token,
-            "tg_chat_id": telegram_chat_id
+            "tg_chat_id": telegram_chat_id,
+            "video_model": video_model,
+            "video_duration": video_duration,
+            "video_ratio": video_ratio
         }
     }
     
-    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool, (enable_ext_btn2.lower() == "true"), (telegram_enabled.lower() == "true"), telegram_token, telegram_chat_id), daemon=True)
+    t = threading.Thread(target=run_video_automation, args=(task_id, prompt, img1_path, img2_path, profile_id, save_path, headless_bool, (enable_ext.lower() == "true"), (enable_ext_btn2.lower() == "true"), (telegram_enabled.lower() == "true"), telegram_token, telegram_chat_id, video_model, video_duration, video_ratio), daemon=True)
     t.start()
     
     return {"ok": True, "task_id": task_id, "profile_id": profile_id}
@@ -1242,8 +2089,15 @@ def retry_video(task_id: str):
     p = task["params"]
     video_tasks[task_id]["status"] = "pending"
     video_tasks[task_id]["message"] = "Đang thử lại..."
-    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False), p.get("enable_ext_btn2", False), p.get("tg_enabled", False), p.get("tg_token", ""), p.get("tg_chat_id", "")), daemon=True)
+    video_tasks[task_id].pop("force_stop", None) # Xóa cờ force_stop nếu có
+    t = threading.Thread(target=run_video_automation, args=(task_id, p["prompt"], p["img1_path"], p["img2_path"], p["profile_id"], p.get("save_path"), p.get("is_headless", False), p.get("enable_ext", False), p.get("enable_ext_btn2", False), p.get("tg_enabled", False), p.get("tg_token", ""), p.get("tg_chat_id", ""), p.get("video_model", "Dreamina Seedance 2.0 Fast"), p.get("video_duration", "10s"), p.get("video_ratio", "9:16")), daemon=True)
     t.start()
+    return {"ok": True}
+
+@app.post("/api/video/stop/{task_id}")
+def stop_video(task_id: str):
+    if task_id in video_tasks:
+        video_tasks[task_id]["force_stop"] = True
     return {"ok": True}
 
 @app.get("/api/video/status/{task_id}")
@@ -1265,7 +2119,357 @@ def download_video(task_id: str, request: Request):
     from fastapi.responses import FileResponse as FR
     return FR(str(video_path), media_type="video/mp4", filename=video_path.name)
 
+@app.get("/api/debug/screenshot/{task_id}")
+def get_debug_screenshot(task_id: str):
+    """Trả về ảnh debug screenshot nút Xóa ngay đã highlight"""
+    from fastapi.responses import FileResponse as FR
+    task = video_tasks.get(task_id, {})
+    ss_path = task.get("debug_screenshot")
+    if ss_path and Path(ss_path).exists():
+        return FR(ss_path, media_type="image/png")
+    # Tìm file debug tự động
+    ss_file = Path(BASE_DIR) / "data" / "debug_screenshots" / f"xoa_ngay_{task_id}.png"
+    if ss_file.exists():
+        return FR(str(ss_file), media_type="image/png")
+    raise HTTPException(404, "Screenshot chưa sẵn sàng hoặc chưa được chụp")
 
+from pydantic import BaseModel
+
+class DeleteAccountDirectReq(BaseModel):
+    profile_id: str
+
+def run_delete_account_automation(task_id: str, profile_id: str):
+    from playwright.sync_api import sync_playwright
+    import time
+    from pathlib import Path
+    import json
+    import random
+    
+    ext_path = str((Path(BASE_DIR) / "data" / "extensions" / "fingerprint_spoofer").absolute())
+    profile = manager.get_profile(profile_id)
+    if not profile:
+        video_tasks[task_id] = {"status": "error", "message": "Profile not found"}
+        return
+        
+    video_tasks[task_id] = {"status": "running", "message": "Đang mở trình duyệt..."}
+    try:
+        with sync_playwright() as p:
+            browser = None
+            context = None
+            
+            # Ưu tiên kết nối qua CDP nếu profile đang được mở (Nút 'Mở Chrome' đã được bấm)
+            port_file = Path(profile.user_data_dir) / "cdp_port.txt"
+            if port_file.exists():
+                try:
+                    port = int(port_file.read_text().strip())
+                    browser = p.chromium.connect_over_cdp(f"http://localhost:{port}")
+                    context = browser.contexts[0]
+                except:
+                    pass
+            
+            # Nếu không thể connect CDP thì mở trình duyệt mới
+            if not context:
+                context = _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False, is_headless=False)
+            
+            # Tìm tab dola.com đã mở sẵn, nếu không có thì lấy tab đầu tiên
+            page = None
+            for pg in context.pages:
+                if "dola.com" in pg.url:
+                    page = pg
+                    break
+                    
+            if not page:
+                if context.pages:
+                    page = context.pages[0]
+                else:
+                    page = context.new_page()
+                    
+            # Playwright khi connect CDP thường tạo ra tab 'about:blank' rác -> đóng nó lại
+            for pg in context.pages:
+                if pg != page:
+                    try: pg.close()
+                    except: pass
+            
+            try: page.bring_to_front()
+            except: pass
+                
+            page.goto("https://dola.com/chat", timeout=60000)
+            page.wait_for_timeout(3000)
+            
+            # Kiểm tra đăng nhập
+            avatar_btn = page.locator("button[aria-haspopup='menu']").filter(has=page.locator("img.rounded-full"))
+            if not avatar_btn.count():
+                video_tasks[task_id] = {"status": "error", "message": "Bạn chưa đăng nhập Dola trên Profile này! Vui lòng Mở Chrome và đăng nhập trước."}
+                try: context.close()
+                except: pass
+                return
+                
+            video_tasks[task_id]["message"] = "Đang tiến hành Xóa tài khoản..."
+            
+            # 1. Bấm Avatar
+            avatar_btn.first.click(timeout=8000)
+            
+            def click_by_coords(texts, selector='button, p, div, span, a', retries=10):
+                import json, random
+                for _ in range(retries):
+                    box = page.evaluate(f"""() => {{
+                        const texts = {json.dumps(texts)};
+                        const allBtns = Array.from(document.querySelectorAll('{selector}'));
+                        const btn = allBtns.reverse().find(b => {{
+                            if (!b.innerText) return false;
+                            const rect = b.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) return false;
+                            const style = window.getComputedStyle(b);
+                            if (style.opacity === '0' || style.visibility === 'hidden' || style.display === 'none') return false;
+                            const text = b.innerText.trim();
+                            return texts.includes(text) || texts.some(t => text === t + ' >' || text === t + ' ❯' || text === t + ' 〉') || texts.some(t => text.includes(t) && text.length <= t.length + 5);
+                        }});
+                        
+                        let clickable = btn;
+                        while(clickable && clickable !== document.body) {{
+                            const style = window.getComputedStyle(clickable);
+                            if (style.cursor === 'pointer' || clickable.tagName === 'BUTTON' || clickable.tagName === 'A') {{
+                                break;
+                            }}
+                            clickable = clickable.parentElement;
+                        }}
+                        if (!clickable || clickable === document.body) clickable = btn;
+                        
+                        if (clickable.scrollIntoView) {{
+                            clickable.scrollIntoView({{block: 'center', inline: 'center'}});
+                        }}
+                        const rect = clickable.getBoundingClientRect();
+                        return {{
+                            x: rect.x + rect.width / 2,
+                            y: rect.y + rect.height / 2
+                        }};
+                    }}""")
+                    if box:
+                        tx = box['x'] + random.uniform(-2, 2)
+                        ty = box['y'] + random.uniform(-2, 2)
+                        page.mouse.move(tx, ty)
+                        page.wait_for_timeout(100)
+                        # Thực hiện click bằng hàm click chuẩn
+                        page.mouse.click(tx, ty)
+                        return True
+                    page.wait_for_timeout(1000) # Đợi lâu hơn xíu giữa các lần thử
+                return False
+
+            def click_by_exact_selector(sel, retries=10):
+                import random
+                for _ in range(retries):
+                    box = page.evaluate(f"""() => {{
+                        const btn = document.querySelector('{sel}');
+                        if (btn.scrollIntoView) {{
+                            btn.scrollIntoView({{block: 'center', inline: 'center'}});
+                        }}
+                        const rect = btn.getBoundingClientRect();
+                        return {{
+                            x: rect.x + rect.width / 2,
+                            y: rect.y + rect.height / 2
+                        }};
+                    }}""")
+                    if box:
+                        tx = box['x'] + random.uniform(-2, 2)
+                        ty = box['y'] + random.uniform(-2, 2)
+                        page.mouse.move(tx, ty)
+                        page.wait_for_timeout(100)
+                        page.mouse.click(tx, ty)
+                        return True
+                    page.wait_for_timeout(1000)
+                return False
+
+            # 2. Bấm Settings / Cài đặt
+            page.wait_for_timeout(2000)
+            if not click_by_coords(['Settings', 'Cài đặt']): raise Exception("Không tìm thấy nút Settings / Cài đặt")
+            
+            # 3. Bấm Account / Tài khoản
+            page.wait_for_timeout(2000)
+            if not click_by_coords(['Account', 'Tài khoản']): raise Exception("Không tìm thấy nút Account / Tài khoản")
+            
+            # 4. Bấm Delete Account / Xóa tài khoản
+            page.wait_for_timeout(2000)
+            if not click_by_coords(['Delete Account', 'Xóa tài khoản']): raise Exception("Không tìm thấy nút Delete Account / Xóa tài khoản")
+            
+            # 5. Bấm Delete / Xóa
+            page.wait_for_timeout(2000)
+            if not click_by_coords(['Delete', 'Xóa'], 'button'): raise Exception("Không tìm thấy nút Delete / Xóa")
+            
+            # 5.5. Bấm Xóa trong modal xác nhận nhỏ (Hủy / Xóa)
+            page.wait_for_timeout(2000)
+            print("[XoaNgay] Đang bấm nút Xóa màu đỏ trong modal xác nhận...")
+            try:
+                clicked_modal = page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    // Tìm các nút có chữ Xóa hoặc Delete chính xác
+                    const deleteBtns = btns.filter(b => b.innerText.trim() === 'Xóa' || b.innerText.trim() === 'Delete');
+                    if (deleteBtns.length > 0) {
+                        // Click nút cuối cùng (thường là nút trong modal vừa hiện ra)
+                        deleteBtns[deleteBtns.length - 1].click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if clicked_modal:
+                    print("[XoaNgay] Đã click nút Xóa trong modal thành công!")
+                else:
+                    print("[XoaNgay] Không tìm thấy nút Xóa trong modal bằng JS, thử Playwright...")
+                    page.locator('button:has-text("Xóa"), button:has-text("Delete")').last.click(timeout=2000, force=True)
+            except Exception as e:
+                print(f"[XoaNgay] Lỗi click nút Xóa trong modal: {e}")
+            
+            # 5.6. Bấm Xác nhận (nếu có popup Xác nhận tuổi)
+            page.wait_for_timeout(2000)
+            try:
+                clicked_confirm = page.evaluate("""() => {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const confirmBtns = btns.filter(b => b.innerText.trim() === 'Xác nhận' || b.innerText.trim() === 'Confirm');
+                    if (confirmBtns.length > 0) {
+                        confirmBtns[confirmBtns.length - 1].click();
+                        return true;
+                    }
+                    return false;
+                }""")
+                if clicked_confirm:
+                    print("[XoaNgay] Đã click nút Xác nhận tuổi!")
+            except Exception as e:
+                pass
+            
+            # 6. Bấm Xóa ngay - Dùng kịch bản ElementFromPoint siêu việt của User
+            print("[XoaNgay] Đang bắt đầu bấm Xóa ngay bằng kịch bản ElementFromPoint...")
+            
+            success = False
+            for attempt in range(6):
+                page.wait_for_timeout(2000)
+                frames_list = page.frames
+                print(f"[XoaNgay] Attempt {attempt+1}: Bơm mã JS vào tất cả {len(frames_list)} frames (như Extension)...")
+                
+                js_code = """
+                    async () => {
+                      const logo = document.querySelector("img.icon-ieQdCp");
+                      if (!logo) return "KhongThayLogo";
+
+                      // Vị trí: dưới logo 30px
+                      const r = logo.getBoundingClientRect();
+                      const size = 50;
+                      const x = r.left + (r.width - size) / 2;
+                      const y = r.bottom + 30;
+
+                      // Tạo highlight
+                      document.getElementById("test-square-highlight")?.remove();
+
+                      const square = document.createElement("div");
+                      square.id = "test-square-highlight";
+
+                      Object.assign(square.style, {
+                        position: "fixed",
+                        left: `${x}px`,
+                        top: `${y}px`,
+                        width: `${size}px`,
+                        height: `${size}px`,
+                        boxSizing: "border-box",
+                        border: "4px solid #ff0033",
+                        borderRadius: "4px",
+                        background: "rgba(255, 0, 51, .18)",
+                        boxShadow: "0 0 18px 7px rgba(255, 0, 51, .75)",
+                        zIndex: "2147483647",
+                        pointerEvents: "none"
+                      });
+
+                      document.body.appendChild(square);
+                      console.log("Đã highlight. Sẽ click sau 1.5 giây.");
+
+                      await new Promise(resolve => setTimeout(resolve, 1500));
+
+                      // Ẩn overlay để lấy chính phần tử phía dưới tâm ô
+                      square.style.display = "none";
+                      const target = document.elementFromPoint(x + size / 2, y + size / 2);
+                      square.remove();
+
+                      if (!target) return "KhongCoPhanTu";
+
+                      const clickable = target.closest(
+                        ".confirm-button-ZuDQ59, [role='button'], button, a, [onclick]"
+                      ) || target;
+
+                      console.log("Đang click phần tử:", clickable);
+                      clickable.click();
+                      
+                      return "DaClick";
+                    }
+                """
+                
+                clicked_this_round = False
+                for f in frames_list:
+                    try:
+                        result = f.evaluate(js_code)
+                        if result == "DaClick":
+                            print(f"     -> [Tuyệt vời] Đã vẽ highlight và CLICK TRÚNG ĐÍCH trong frame: {f.name or f.url}")
+                            clicked_this_round = True
+                            break
+                    except Exception:
+                        # Frame có thể bị huỷ hoặc lỗi kết nối, bỏ qua
+                        pass
+                        
+                if clicked_this_round:
+                    page.wait_for_timeout(3000)
+                    # Kiểm tra xem logo có biến mất khỏi tất cả frames chưa
+                    still_there = False
+                    for f in page.frames:
+                        try:
+                            has_logo = f.evaluate('() => !!document.querySelector("img.icon-ieQdCp")')
+                            if has_logo:
+                                still_there = True
+                                break
+                        except: pass
+                        
+                    if not still_there:
+                        success = True
+                        print("[XoaNgay] Xác nhận cửa sổ Xóa ngay đã đóng -> THÀNH CÔNG!")
+                        break
+                    else:
+                        print("[XoaNgay] Vẫn còn thấy Logo, click chưa ăn hoặc mạng lag...")
+            
+            if not success:
+                print("[XoaNgay] Cảnh báo: Vượt quá số lần thử click Xóa ngay!")
+            
+            page.wait_for_timeout(2000)
+            
+            try:
+                page.wait_for_timeout(3000)
+                page.evaluate("""() => {
+                    const all = document.body.innerText;
+                    if (!all.includes('Account deleted') && !all.includes('đã xóa') && !all.includes('deleted')) throw new Error('Not deleted yet');
+                }""")
+                page.wait_for_timeout(1000)
+            except Exception as e:
+                page.wait_for_timeout(5000)
+                page.evaluate("""() => {
+                    const all = document.body.innerText;
+                    if (!all.includes('Account deleted') && !all.includes('đã xóa') && !all.includes('deleted')) throw new Error('Timeout: Không thấy thông báo xóa thành công!');
+                }""")
+            
+            video_tasks[task_id]["message"] = "Đã xóa Account thành công!"
+            video_tasks[task_id]["status"] = "done"
+            
+            try: context.close()
+            except: pass
+
+    except Exception as e:
+        try: context.close()
+        except: pass
+        video_tasks[task_id]["status"] = "error"
+        video_tasks[task_id]["message"] = f"Lỗi khi xóa account: {e}"
+
+@app.post("/api/video/delete_account_direct")
+def api_delete_account_direct(req: DeleteAccountDirectReq):
+    import uuid
+    import threading
+    task_id = str(uuid.uuid4())
+    video_tasks[task_id] = {"status": "pending", "message": "Chuẩn bị xóa account..."}
+    t = threading.Thread(target=run_delete_account_automation, args=(task_id, req.profile_id), daemon=True)
+    t.start()
+    return {"ok": True, "task_id": task_id}
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
