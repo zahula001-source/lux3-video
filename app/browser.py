@@ -266,21 +266,24 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
         # Giữ browser sống cho đến khi đóng HẾT SẠCH tab
         # Quan trọng: dùng biến 'page_item' thay vì 'p' để tránh shadow biến 'p' của playwright!
         import time
+        consecutive_errors = 0
         while True:
             try:
-                # Kiểm tra context đã bị đóng chưa (có thể xảy ra khi download lớn)
-                if context.is_closed():
-                    log("Context closed, exiting loop")
-                    break
-
                 try:
                     current_pages = context.pages
-                except Exception:
-                    # context.pages có thể throw khi đang download - KHÔNG thoát, tiếp tục đợi
+                    consecutive_errors = 0  # reset khi lấy pages thành công
+                except Exception as pages_err:
+                    # context.pages throw khi context đóng hoặc đang download
+                    # Nếu lỗi quá nhiều lần liên tiếp (>30s) mới thoát
+                    consecutive_errors += 1
+                    if consecutive_errors > 30:
+                        log(f"Context unavailable 30s, exiting: {pages_err}")
+                        break
                     time.sleep(1)
                     continue
 
                 if not current_pages:
+                    # Tất cả tab đã đóng - Chrome đã bị user đóng thủ công
                     break
 
                 pumped = False
@@ -297,7 +300,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
                     # sleep để tránh 100% CPU spin - KHÔNG thoát vòng lặp!
                     time.sleep(1)
             except Exception as loop_err:
-                log(f"[Keep-alive] warn: {loop_err}")
+                # Lỗi bất ngờ trong vòng lặp - ghi log nhưng KHÔNG thoát
+                log(f"[Keep-alive] loop warn: {loop_err}")
                 time.sleep(1)
 except Exception as e:
     log(f"FATAL {e}")
