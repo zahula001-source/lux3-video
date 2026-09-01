@@ -130,8 +130,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
     lines.append("            args=args,")
-    lines.append("            # KHÔNG dùng accept_downloads=True - để Chrome download native")
-    lines.append("            # Nếu dùng accept_downloads=True mà handler không gọi save_as() thì download bị treo")
+    lines.append('            downloads_path=str(Path.home() / "Downloads"),')
+    lines.append('            accept_downloads=True,')
     lines.append("        )")
     code_no_ext = """
         if proxy:
@@ -146,10 +146,56 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # Không cần download handler vì ta không dùng accept_downloads=True
-        # Chrome tự xử lý download hoàn toàn native - không bị block bởi Playwright
-
-
+        # Download handler: PHẢI gọi save_as() nếu dùng accept_downloads=True
+        # Nếu handler không gọi save_as() thì download bị TREO VÔ HẠN → Chrome crash!
+        def _on_download(download):
+            import threading
+            def _do_save():
+                try:
+                    from pathlib import Path as _P
+                    name = download.suggested_filename or "download"
+                    url  = (download.url or "")
+                    # B1: Lấy đuôi từ suggested_filename
+                    ext = _P(name).suffix.lower()
+                    # B2: Đoán từ URL nếu chưa có đuôi
+                    if not ext:
+                        url_clean = url.split("?")[0].split("#")[0]
+                        url_ext = _P(url_clean).suffix.lower()
+                        if url_ext in (".mp4",".webm",".mov",".avi",".mkv"):
+                            ext = url_ext
+                        elif url_ext in (".jpg",".jpeg",".png",".webp",".gif",".avif"):
+                            ext = url_ext
+                    # B3: Đoán từ MIME type nếu vẫn chưa có
+                    if not ext:
+                        mime = getattr(download, 'mime_type', '') or ''
+                        if 'video' in mime:            ext = '.mp4'
+                        elif 'jpeg' in mime:           ext = '.jpg'
+                        elif 'png' in mime:            ext = '.png'
+                        elif 'webp' in mime:           ext = '.webp'
+                        elif 'gif' in mime:            ext = '.gif'
+                        elif 'image' in mime:          ext = '.jpg'
+                        else:                          ext = '.mp4'
+                    stem = _P(name).stem or name
+                    save_dir = _P.home() / 'Downloads'
+                    save_dir.mkdir(parents=True, exist_ok=True)
+                    final_path = save_dir / (stem + ext)
+                    # Tránh ghi đè
+                    counter = 1
+                    while final_path.exists():
+                        final_path = save_dir / f"{stem}_{counter}{ext}"
+                        counter += 1
+                    download.save_as(str(final_path))
+                    log(f"[Download] Saved: {final_path}")
+                except Exception as e:
+                    log(f"[Download] Error: {e}")
+                    try: download.cancel()
+                    except: pass
+            threading.Thread(target=_do_save, daemon=True).start()
+        context.on("download", _on_download)
+        def _on_page_dl(page):
+            try: page.on("download", _on_download)
+            except: pass
+        context.on("page", _on_page_dl)
 
         try:
             # Playwright tự động nhét 1 tab about:blank vào, mình sẽ xóa nó đi nếu có tab cũ được khôi phục
