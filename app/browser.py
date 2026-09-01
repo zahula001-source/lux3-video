@@ -130,8 +130,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
     lines.append("            args=args,")
-    lines.append('            downloads_path=str(Path.home() / "Downloads"),')
-    lines.append("            accept_downloads=True,")
+    lines.append("            # KHÔNG dùng accept_downloads=True - để Chrome download native")
+    lines.append("            # Nếu dùng accept_downloads=True mà handler không gọi save_as() thì download bị treo")
     lines.append("        )")
     code_no_ext = """
         if proxy:
@@ -146,23 +146,10 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # Gán handler download để Playwright KHÔNG crash/đóng tab khi user download file
-        # Playwright mặc định sẽ throw nếu không có handler - gây Chrome tự đóng!
-        def _on_download(download):
-            try:
-                log(f"[Download] Started: {download.suggested_filename}")
-                # Không cancel, không gọi gì thêm - để Chrome xử lý native
-            except:
-                pass
-        context.on("download", _on_download)
+        # Không cần download handler vì ta không dùng accept_downloads=True
+        # Chrome tự xử lý download hoàn toàn native - không bị block bởi Playwright
 
-        # Gán handler cho mọi tab mới được mở sau này cũng có download handler
-        def _on_page(page):
-            try:
-                page.on("download", _on_download)
-            except:
-                pass
-        context.on("page", _on_page)
+
 
         try:
             # Playwright tự động nhét 1 tab about:blank vào, mình sẽ xóa nó đi nếu có tab cũ được khôi phục
