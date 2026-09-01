@@ -196,6 +196,12 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
                 if temp:
                     shutil.copy2(temp, str(final_path))
                     log(f"[Download] OK: {final_path.name}")
+                    # Xóa file gốc UUID (không đuôi) mà Playwright để lại trong Downloads
+                    try:
+                        import os as _os
+                        _os.unlink(temp)
+                    except:
+                        pass
                 else:
                     log("[Download] Failed: temp path is None")
             except Exception as e:

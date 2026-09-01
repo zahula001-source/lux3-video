@@ -597,6 +597,12 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
             if temp:
                 shutil.copy2(temp, str(final_path))
                 print(f"[Download] OK: {final_path.name}")
+                # Xóa file gốc UUID (không đuôi) mà Playwright để lại trong Downloads
+                try:
+                    import os as _os
+                    _os.unlink(temp)
+                except:
+                    pass
             else:
                 print("[Download] Failed: temp path is None")
         except Exception as e:
