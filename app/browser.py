@@ -129,8 +129,7 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append("            headless=False,")
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
-    lines.append('            downloads_path=str(Path.home() / "Downloads"),')
-    lines.append('            accept_downloads=True,')
+    lines.append('            # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)')
     lines.append("        )")
     code_no_ext = """
         if proxy:
@@ -141,6 +140,16 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
         
         try:
             Path(user_data_dir, "cdp_port.txt").write_text(str(cdp_port))
+        except: pass
+
+        # Ep Chrome tai file thang ve thu muc Downloads (bo qua Playwright de khong crash)
+        try:
+            _cdp = context.new_cdp_session(context.pages[0])
+            _cdp.send('Browser.setDownloadBehavior', {
+                'behavior': 'allow',
+                'downloadPath': str(Path.home() / "Downloads"),
+                'eventsEnabled': False
+            })
         except: pass
 
         log(f"Launched, pages={len(context.pages)}")
