@@ -129,23 +129,11 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append("            headless=False,")
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
-    lines.append('            # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)')
+    lines.append("            args=args,")
     lines.append("        )")
     code_no_ext = """
         if proxy:
             launch_args["proxy"] = proxy
-
-        # Ép Chrome tải về thư mục Downloads bằng cách sửa file Preferences
-        try:
-            import json
-            prefs_file = Path(user_data_dir) / "Default" / "Preferences"
-            if prefs_file.exists():
-                prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
-                if "download" not in prefs: prefs["download"] = {}
-                prefs["download"]["default_directory"] = str(Path.home() / "Downloads").replace('\\\\', '/')
-                prefs["download"]["prompt_for_download"] = False
-                prefs_file.write_text(json.dumps(prefs), encoding="utf-8")
-        except: pass
 
         log("Launching...")
         context = p.chromium.launch_persistent_context(**launch_args)
@@ -156,8 +144,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash
-
+        # Khong dung accept_downloads=True de Chrome download native 100%
+        # Tranh Playwright block event loop gay loi .crdownload hoac crash
 
 
         try:

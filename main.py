@@ -545,11 +545,12 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         channel="chrome",
         ignore_default_args=ignore_args,
         args=args,
+        # Không dùng accept_downloads=True để tránh Playwright block download gây ra file .crdownload
     )
-    
-    
-    
-    # Kích hoạt extension Fingerprint Spoofer
+
+    # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash/lỗi .crdownload
+
+
     try:
         import random
         ext_page = context.new_page()
@@ -2403,7 +2404,7 @@ def index():
     return {"message": "Antidetect Tool API running. Go to /docs for API docs"}
 
 if __name__ == "__main__":
-    # KHỞI CHẠY BACKGROUND WATCHER DOWNLOADS
+    # KHỞI CHẠY BACKGROUND WATCHER DOWNLOADS ĐỂ TỰ ĐỘNG ĐỔI ĐUÔI FILE LẠ THÀNH .MP4/.JPG
     def _watch_downloads_folder():
         import time, os
         from pathlib import Path
@@ -2432,9 +2433,11 @@ if __name__ == "__main__":
                 for f in downloads_dir.iterdir():
                     if not f.is_file(): continue
                     ext = f.suffix.lower()
+                    # Không can thiệp nếu file đang down hoặc là temp
                     if ext == '.crdownload' or ext == '.tmp': continue
+                    # Đã có đuôi hợp lệ thì bỏ qua
                     if ext in ('.mp4','.jpg','.png','.webp','.webm','.gif','.jpeg','.avi','.mov','.mkv'): continue
-                    # Chi xy ly file tao/sua trong 15 phut gan day
+                    # Chỉ xử lý file tạo/sửa trong 15 phút gần đây
                     try:
                         if now - f.stat().st_mtime > 900: continue
                     except: continue
@@ -2458,7 +2461,7 @@ if __name__ == "__main__":
                 
     import threading
     threading.Thread(target=_watch_downloads_folder, daemon=True).start()
-
+    
     import uvicorn
     print("""
 ╔══════════════════════════════════════════════════╗
