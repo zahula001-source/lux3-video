@@ -130,8 +130,7 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
     lines.append("            args=args,")
-    lines.append('            downloads_path=str(Path.home() / "Downloads"),')
-    lines.append('            accept_downloads=True,')
+    lines.append('            # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)')
     lines.append("        )")
     code_no_ext = """
         if proxy:
@@ -146,66 +145,7 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # DOWNLOAD HANDLER - AN TOÀN 100% VỚI GREENLET
-        # Gọi trực tiếp download.path() trong handler - Playwright sẽ tự yield event loop (không block)
-        # KHÔNG DÙNG threading.Thread (gây crash greenlet)
-        # KHÔNG DÙNG requests (không download được link blob: của video/ảnh)
-        def _on_download(download):
-            try:
-                import shutil, hashlib
-                from pathlib import Path as _P
-                name = download.suggested_filename or "download"
-                url  = (download.url or "")
-                
-                # B1: Lấy đuôi từ tên file gốc
-                ext = _P(name).suffix.lower()
-                
-                # B2: Đoán từ URL
-                if not ext and url and not url.startswith("blob:"):
-                    url_clean = url.split("?")[0].split("#")[0]
-                    url_ext = _P(url_clean).suffix.lower()
-                    if url_ext in (".mp4",".webm",".mov",".avi",".mkv",".jpg",".jpeg",".png",".webp",".gif",".avif"):
-                        ext = url_ext
-                        
-                # B3: Đoán từ MIME type
-                if not ext:
-                    mime = getattr(download, 'mime_type', '') or ''
-                    if 'video' in mime:   ext = '.mp4'
-                    elif 'jpeg' in mime:  ext = '.jpg'
-                    elif 'png' in mime:   ext = '.png'
-                    elif 'webp' in mime:  ext = '.webp'
-                    elif 'gif' in mime:   ext = '.gif'
-                    elif 'image' in mime: ext = '.jpg'
-                    else:                 ext = '.mp4'  # mặc định
-                    
-                stem = _P(name).stem or name
-                if not stem or stem.lower() == "download":
-                    stem = hashlib.md5(url.encode()).hexdigest()[:12]
-                    
-                save_dir = _P.home() / 'Downloads'
-                save_dir.mkdir(parents=True, exist_ok=True)
-                final_path = save_dir / (stem + ext)
-                
-                counter = 1
-                while final_path.exists():
-                    final_path = save_dir / f"{stem}_{counter}{ext}"
-                    counter += 1
-                    
-                # Gọi download.path() trực tiếp - Playwright tự xử lý async qua greenlet
-                temp_path = download.path()
-                if temp_path:
-                    shutil.copy2(temp_path, str(final_path))
-                    log(f"[Download] Xong: {final_path.name}")
-                else:
-                    log("[Download] Lỗi: temp_path is None")
-            except Exception as e:
-                log(f"[Download] Lỗi handler: {e}")
-
-        context.on("download", _on_download)
-        def _on_page_dl(page):
-            try: page.on("download", _on_download)
-            except: pass
-        context.on("page", _on_page_dl)
+        # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash
 
 
 

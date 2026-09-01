@@ -545,74 +545,10 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         channel="chrome",
         ignore_default_args=ignore_args,
         args=args,
-        accept_downloads=True,
-        downloads_path=str(Path.home() / "Downloads"),
+        # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)
     )
 
-    # ── DOWNLOAD HANDLER - AN TOÀN 100% VỚI GREENLET ──────────────────────────
-    # Gọi trực tiếp download.path() trong handler - Playwright tự yield event loop (không block)
-    # KHÔNG DÙNG threading.Thread (gây crash greenlet)
-    # KHÔNG DÙNG requests (không download được link blob: của video/ảnh)
-    def _on_download(download):
-        try:
-            import shutil, hashlib
-            from pathlib import Path as _P
-            name = download.suggested_filename or "download"
-            url  = (download.url or "")
-            
-            # B1: Lấy đuôi từ tên file gốc
-            ext = _P(name).suffix.lower()
-            
-            # B2: Đoán từ URL
-            if not ext and url and not url.startswith("blob:"):
-                url_clean = url.split("?")[0].split("#")[0]
-                url_ext = _P(url_clean).suffix.lower()
-                if url_ext in (".mp4",".webm",".mov",".avi",".mkv",".jpg",".jpeg",".png",".webp",".gif",".avif"):
-                    ext = url_ext
-                    
-            # B3: Đoán từ MIME type
-            if not ext:
-                mime = getattr(download, 'mime_type', '') or ''
-                if 'video' in mime:   ext = '.mp4'
-                elif 'jpeg' in mime:  ext = '.jpg'
-                elif 'png' in mime:   ext = '.png'
-                elif 'webp' in mime:  ext = '.webp'
-                elif 'gif' in mime:   ext = '.gif'
-                elif 'image' in mime: ext = '.jpg'
-                else:                 ext = '.mp4'  # mặc định
-                
-            stem = _P(name).stem or name
-            if not stem or stem.lower() == "download":
-                stem = hashlib.md5(url.encode()).hexdigest()[:12]
-                
-            save_dir = _P.home() / 'Downloads'
-            save_dir.mkdir(parents=True, exist_ok=True)
-            final_path = save_dir / (stem + ext)
-            
-            counter = 1
-            while final_path.exists():
-                final_path = save_dir / f"{stem}_{counter}{ext}"
-                counter += 1
-                
-            # Gọi download.path() trực tiếp - Playwright tự xử lý async qua greenlet
-            temp_path = download.path()
-            if temp_path:
-                shutil.copy2(temp_path, str(final_path))
-                print(f"[Download] Xong: {final_path.name}")
-            else:
-                print("[Download] Lỗi: temp_path is None")
-        except Exception as e:
-            print(f"[Download] Lỗi handler: {e}")
-
-    def _on_page(page):
-        try: page.on("download", _on_download)
-        except: pass
-
-    context.on("download", _on_download)
-    context.on("page", _on_page)
-    for _pg in context.pages:
-        try: _pg.on("download", _on_download)
-        except: pass
+    # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash
 
 
     try:
@@ -2468,6 +2404,62 @@ def index():
     return {"message": "Antidetect Tool API running. Go to /docs for API docs"}
 
 if __name__ == "__main__":
+    # KHỞI CHẠY BACKGROUND WATCHER DOWNLOADS
+    def _watch_downloads_folder():
+        import time, os
+        from pathlib import Path
+        downloads_dir = Path.home() / "Downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        
+        def _get_magic_ext(filepath):
+            try:
+                with open(filepath, 'rb') as f:
+                    data = f.read(256)
+                if not data or len(data) < 8: return ''
+                b = data[:16]
+                if data[:256].find(b'ftyp') >= 0: return '.mp4'
+                if b[:3] == b'\xff\xd8\xff': return '.jpg'
+                if b[:8] == b'\x89PNG\r\n\x1a\n': return '.png'
+                if b[:4] == b'RIFF' and b[8:12] == b'WEBP': return '.webp'
+                if b[:6] in (b'GIF87a', b'GIF89a'): return '.gif'
+                if b[:4] == b'\x1aE\xdf\xa3': return '.webm'
+            except: pass
+            return ''
+
+        while True:
+            try:
+                time.sleep(2)
+                now = time.time()
+                for f in downloads_dir.iterdir():
+                    if not f.is_file(): continue
+                    ext = f.suffix.lower()
+                    if ext == '.crdownload' or ext == '.tmp': continue
+                    if ext in ('.mp4','.jpg','.png','.webp','.webm','.gif','.jpeg','.avi','.mov','.mkv'): continue
+                    # Chi xy ly file tao/sua trong 15 phut gan day
+                    try:
+                        if now - f.stat().st_mtime > 900: continue
+                    except: continue
+                    
+                    real_ext = _get_magic_ext(f)
+                    if real_ext:
+                        new_path = f.with_name(f.stem + real_ext)
+                        counter = 1
+                        while new_path.exists():
+                            new_path = f.with_name(f"{f.stem}_{counter}{real_ext}")
+                            counter += 1
+                        try:
+                            f.rename(new_path)
+                            print(f"[Watcher] Tự động đổi tên: {f.name} -> {new_path.name}")
+                        except PermissionError:
+                            pass # File có thể đang được Chrome ghi dở, bỏ qua chờ loop sau
+                        except Exception as e:
+                            pass
+            except Exception as e:
+                time.sleep(5)
+                
+    import threading
+    threading.Thread(target=_watch_downloads_folder, daemon=True).start()
+    
     import uvicorn
     print("""
 ╔══════════════════════════════════════════════════╗
