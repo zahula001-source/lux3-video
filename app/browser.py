@@ -146,115 +146,60 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # DOWNLOAD HANDLER - AN TOAN 100% voi greenlet:
-        # B1: Lay URL tu download event (non-blocking)
-        # B2: Cancel playwright download de tranh block event loop
-        # B3: Dung requests trong thread rieng de download file voi dung duoi
-        import threading as _threading
+        # DOWNLOAD HANDLER - AN TOÀN 100% VỚI GREENLET
+        # Gọi trực tiếp download.path() trong handler - Playwright sẽ tự yield event loop (không block)
+        # KHÔNG DÙNG threading.Thread (gây crash greenlet)
+        # KHÔNG DÙNG requests (không download được link blob: của video/ảnh)
         def _on_download(download):
             try:
-                dl_url  = download.url or ""
-                dl_name = download.suggested_filename or "download"
-                # Cancel playwright intercept ngay lap tuc - tranh block event loop!
-                try: download.cancel()
-                except: pass
-                # Download trong thread rieng - hoan toan doc lap khoi playwright
-                _threading.Thread(
-                    target=_download_file_native,
-                    args=(dl_url, dl_name),
-                    daemon=True
-                ).start()
-            except Exception as e:
-                log(f"[Download] Handler err: {e}")
-
-        def _detect_ext_from_bytes(data):
-            """Doc magic bytes de xac dinh loai file chinh xac"""
-            if not data or len(data) < 4:
-                return ''
-            b = data[:16]
-            if b[0:4] == b'\x00\x00\x00\x18' or b[4:8] == b'ftyp' or b[0:4] == b'\x00\x00\x00\x20':
-                return '.mp4'
-            if b[4:12] in (b'ftypmp42', b'ftypisom', b'ftypM4V ', b'ftypMSNV'):
-                return '.mp4'
-            # Quet bytes de tim ftyp box (MP4/MOV)
-            try:
-                idx = data[:256].find(b'ftyp')
-                if idx >= 0:
-                    return '.mp4'
-            except: pass
-            if b[:3] == b'\xff\xd8\xff':  # JPEG
-                return '.jpg'
-            if b[:8] == b'\x89PNG\r\n\x1a\n':  # PNG
-                return '.png'
-            if b[:4] == b'RIFF' and b[8:12] == b'WEBP':  # WebP
-                return '.webp'
-            if b[:6] in (b'GIF87a', b'GIF89a'):  # GIF
-                return '.gif'
-            if b[:4] == b'\x1aE\xdf\xa3':  # WebM/MKV
-                return '.webm'
-            return ''
-
-        def _download_file_native(url, suggested_name):
-            """Download file trong thread rieng voi dung duoi file"""
-            try:
-                import shutil, requests
+                import shutil, hashlib
                 from pathlib import Path as _P
-                # B1: Lay duoi tu suggested_filename
-                ext = _P(suggested_name).suffix.lower()
-                # B2: Doan tu URL
-                if not ext:
-                    url_clean = url.split('?')[0].split('#')[0]
+                name = download.suggested_filename or "download"
+                url  = (download.url or "")
+                
+                # B1: Lấy đuôi từ tên file gốc
+                ext = _P(name).suffix.lower()
+                
+                # B2: Đoán từ URL
+                if not ext and url and not url.startswith("blob:"):
+                    url_clean = url.split("?")[0].split("#")[0]
                     url_ext = _P(url_clean).suffix.lower()
-                    if url_ext in ('.mp4','.webm','.mov','.avi','.mkv','.jpg','.jpeg','.png','.webp','.gif','.avif'):
+                    if url_ext in (".mp4",".webm",".mov",".avi",".mkv",".jpg",".jpeg",".png",".webp",".gif",".avif"):
                         ext = url_ext
-                # B3: Download va doc magic bytes de xac dinh chinh xac
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': url.split('?')[0],
-                }
-                resp = requests.get(url, headers=headers, timeout=60, stream=True)
-                resp.raise_for_status()
-                # Doc mime-type tu Content-Type neu chua co ext
+                        
+                # B3: Đoán từ MIME type
                 if not ext:
-                    ct = resp.headers.get('Content-Type', '')
-                    if 'video' in ct:   ext = '.mp4'
-                    elif 'jpeg' in ct:  ext = '.jpg'
-                    elif 'png' in ct:   ext = '.png'
-                    elif 'webp' in ct:  ext = '.webp'
-                    elif 'gif' in ct:   ext = '.gif'
-                    elif 'image' in ct: ext = '.jpg'
-                # Doc du lieu va detect magic bytes
-                chunks = []
-                first_chunk = True
-                total = 0
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        chunks.append(chunk)
-                        total += len(chunk)
-                        # Doc magic bytes tu chunk dau
-                        if first_chunk and not ext:
-                            ext = _detect_ext_from_bytes(chunk)
-                            first_chunk = False
-                if not ext:
-                    ext = '.mp4'  # fallback
-                stem = _P(suggested_name).stem or suggested_name
-                if not stem or stem == 'download':
-                    import hashlib, time
+                    mime = getattr(download, 'mime_type', '') or ''
+                    if 'video' in mime:   ext = '.mp4'
+                    elif 'jpeg' in mime:  ext = '.jpg'
+                    elif 'png' in mime:   ext = '.png'
+                    elif 'webp' in mime:  ext = '.webp'
+                    elif 'gif' in mime:   ext = '.gif'
+                    elif 'image' in mime: ext = '.jpg'
+                    else:                 ext = '.mp4'  # mặc định
+                    
+                stem = _P(name).stem or name
+                if not stem or stem.lower() == "download":
                     stem = hashlib.md5(url.encode()).hexdigest()[:12]
+                    
                 save_dir = _P.home() / 'Downloads'
                 save_dir.mkdir(parents=True, exist_ok=True)
                 final_path = save_dir / (stem + ext)
+                
                 counter = 1
                 while final_path.exists():
                     final_path = save_dir / f"{stem}_{counter}{ext}"
                     counter += 1
-                # Ghi file
-                with open(final_path, 'wb') as f:
-                    for chunk in chunks:
-                        f.write(chunk)
-                log(f"[Download] OK: {final_path.name} ({total//1024}KB)")
+                    
+                # Gọi download.path() trực tiếp - Playwright tự xử lý async qua greenlet
+                temp_path = download.path()
+                if temp_path:
+                    shutil.copy2(temp_path, str(final_path))
+                    log(f"[Download] Xong: {final_path.name}")
+                else:
+                    log("[Download] Lỗi: temp_path is None")
             except Exception as e:
-                log(f"[Download] Thread err: {e}")
+                log(f"[Download] Lỗi handler: {e}")
 
         context.on("download", _on_download)
         def _on_page_dl(page):
