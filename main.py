@@ -549,71 +549,101 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         downloads_path=str(Path.home() / "Downloads"),
     )
 
-    # ── DOWNLOAD HANDLER ──────────────────────────────────────────────────────
-    # QUAN TRỌNG: Playwright sync API dùng greenlet — KHÔNG được gọi từ thread khác!
-    # Cách đúng: download.path() trong handler (cùng greenlet) → shutil.copy2() thuần Python
-    def _on_download(download):
+    # ── DOWNLOAD HANDLER - AN TOÀN 100% với greenlet ──────────────────────────
+    # Cách đúng: cancel playwright (non-blocking) → requests trong thread riêng
+    import threading as _dl_thread
+    def _detect_ext_magic(data):
+        """Detect file type bằng magic bytes - chính xác 100%"""
+        if not data or len(data) < 8:
+            return ''
+        b = data[:16]
+        # MP4/MOV: tìm 'ftyp' box trong 256 bytes đầu
         try:
-            import shutil
-            name = download.suggested_filename or "download"
-            url  = download.url or ""
+            if data[:256].find(b'ftyp') >= 0:
+                return '.mp4'
+        except: pass
+        if b[:3] == b'\xff\xd8\xff':          return '.jpg'   # JPEG
+        if b[:8] == b'\x89PNG\r\n\x1a\n':     return '.png'   # PNG
+        if b[:4] == b'RIFF' and b[8:12] == b'WEBP': return '.webp'  # WebP
+        if b[:6] in (b'GIF87a', b'GIF89a'):   return '.gif'   # GIF
+        if b[:4] == b'\x1aE\xdf\xa3':         return '.webm'  # WebM
+        return ''
 
-            # B1: Lấy đuôi từ suggested_filename
-            ext = Path(name).suffix.lower()
-
-            # B2: Đoán từ URL nếu chưa có đuôi
+    def _do_download_native(url, suggested_name):
+        """Download file trong thread riêng - độc lập hoàn toàn với Playwright"""
+        try:
+            import requests
+            from pathlib import Path as _P
+            ext = _P(suggested_name).suffix.lower()
             if not ext:
-                url_path = url.split("?")[0].split("#")[0]
-                url_ext  = Path(url_path).suffix.lower()
-                if url_ext in (".mp4", ".webm", ".mov", ".avi", ".mkv"):
+                url_clean = url.split("?")[0].split("#")[0]
+                url_ext = _P(url_clean).suffix.lower()
+                if url_ext in (".mp4",".webm",".mov",".avi",".mkv",
+                               ".jpg",".jpeg",".png",".webp",".gif",".avif"):
                     ext = url_ext
-                elif url_ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"):
-                    ext = url_ext
-
-            # B3: Đoán từ MIME type nếu vẫn chưa có
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": url.split("?")[0],
+            }
+            resp = requests.get(url, headers=headers, timeout=120, stream=True)
+            resp.raise_for_status()
             if not ext:
-                mime = getattr(download, "mime_type", "") or ""
-                if "video" in mime:    ext = ".mp4"
-                elif "jpeg" in mime:   ext = ".jpg"
-                elif "png"  in mime:   ext = ".png"
-                elif "webp" in mime:   ext = ".webp"
-                elif "gif"  in mime:   ext = ".gif"
-                elif "image" in mime:  ext = ".jpg"
-                else:                  ext = ".mp4"
-
-            stem      = Path(name).stem or name
-            save_dir  = Path.home() / "Downloads"
+                ct = resp.headers.get("Content-Type", "")
+                if "video" in ct:   ext = ".mp4"
+                elif "jpeg" in ct:  ext = ".jpg"
+                elif "png" in ct:   ext = ".png"
+                elif "webp" in ct:  ext = ".webp"
+                elif "gif" in ct:   ext = ".gif"
+                elif "image" in ct: ext = ".jpg"
+            chunks = []
+            first = True
+            total = 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if first and not ext:
+                        ext = _detect_ext_magic(chunk)
+                        first = False
+            if not ext:
+                ext = ".mp4"
+            stem = _P(suggested_name).stem or suggested_name
+            if not stem or stem.lower() == "download":
+                import hashlib
+                stem = hashlib.md5(url.encode()).hexdigest()[:12]
+            save_dir = Path.home() / "Downloads"
             save_dir.mkdir(parents=True, exist_ok=True)
             final_path = save_dir / (stem + ext)
-            counter = 1
+            cnt = 1
             while final_path.exists():
-                final_path = save_dir / f"{stem}_{counter}{ext}"
-                counter += 1
-
-            # download.path() → đợi download xong, trả về temp path (gọi trong handler = OK)
-            # shutil.copy2() → thuần Python, KHÔNG dùng Playwright API → an toàn với greenlet
-            temp = download.path()
-            if temp:
-                shutil.copy2(temp, str(final_path))
-                print(f"[Download] OK: {final_path.name}")
-            else:
-                print("[Download] Failed: temp path is None")
+                final_path = save_dir / f"{stem}_{cnt}{ext}"
+                cnt += 1
+            with open(final_path, "wb") as f:
+                for chunk in chunks:
+                    f.write(chunk)
+            print(f"[Download] OK: {final_path.name} ({total//1024}KB)")
         except Exception as e:
-            print(f"[Download] Error: {e}")
+            print(f"[Download] Thread err: {e}")
+
+    def _on_download(download):
+        try:
+            dl_url  = download.url or ""
+            dl_name = download.suggested_filename or "download"
+            try: download.cancel()   # Cancel ngay - không block event loop!
+            except: pass
+            _dl_thread.Thread(target=_do_download_native, args=(dl_url, dl_name), daemon=True).start()
+        except Exception as e:
+            print(f"[Download] Handler err: {e}")
 
     def _on_page(page):
-        try:
-            page.on("download", _on_download)
-        except:
-            pass
+        try: page.on("download", _on_download)
+        except: pass
 
     context.on("download", _on_download)
     context.on("page", _on_page)
     for _pg in context.pages:
-        try:
-            _pg.on("download", _on_download)
-        except:
-            pass
+        try: _pg.on("download", _on_download)
+        except: pass
 
 
     try:
