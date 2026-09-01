@@ -549,10 +549,9 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         downloads_path=str(Path.home() / "Downloads"),
     )
 
-    
-    # ── DOWNLOAD HANDLER: Tự động gắn đúng đuôi file khi download ──────────
-    # FIX: KHÔNG dùng threading.Thread + save_as() → greenlet crash
-    # ĐÚNG: download.path() (OK từ handler) + shutil.copy2() (thuần Python)
+    # ── DOWNLOAD HANDLER ──────────────────────────────────────────────────────
+    # QUAN TRỌNG: Playwright sync API dùng greenlet — KHÔNG được gọi từ thread khác!
+    # Cách đúng: download.path() trong handler (cùng greenlet) → shutil.copy2() thuần Python
     def _on_download(download):
         try:
             import shutil
@@ -591,26 +590,20 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
                 final_path = save_dir / f"{stem}_{counter}{ext}"
                 counter += 1
 
-            # download.path() → đợi download xong, trả về temp path (gọi từ handler OK)
-            # shutil.copy2() → thuần Python, KHÔNG dùng Playwright API → an toàn 100%
+            # download.path() → đợi download xong, trả về temp path (gọi trong handler = OK)
+            # shutil.copy2() → thuần Python, KHÔNG dùng Playwright API → an toàn với greenlet
             temp = download.path()
             if temp:
                 shutil.copy2(temp, str(final_path))
                 print(f"[Download] OK: {final_path.name}")
-                # Xóa file gốc UUID (không đuôi) mà Playwright để lại trong Downloads
-                try:
-                    import os as _os
-                    _os.unlink(temp)
-                except:
-                    pass
             else:
                 print("[Download] Failed: temp path is None")
         except Exception as e:
             print(f"[Download] Error: {e}")
 
-    def _on_page(pg):
+    def _on_page(page):
         try:
-            pg.on("download", _on_download)
+            page.on("download", _on_download)
         except:
             pass
 

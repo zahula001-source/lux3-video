@@ -146,75 +146,57 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # ── DOWNLOAD HANDLER ────────────────────────────────────────────────────
-        # VẤN ĐỀ: download.path() và save_as() đều crash vì greenlet không đúng
-        # NGUYÊN NHÂN: handler được Playwright gọi từ internal event thread
-        #              nhưng Playwright sync API chỉ chạy được trên greenlet của main thread
-        # GIẢI PHÁP: handler chỉ push download vào queue (thuần Python, không Playwright API)
-        #            main loop xử lý queue từ đúng greenlet
-        import queue as _queue
-        _download_queue = _queue.Queue()
-
+        # QUAN TRONG: Playwright sync API dung greenlet - KHONG duoc goi tu thread khac!
+        # Cach dung: download.path() trong handler (cung greenlet) → shutil.copy2() thuan Python
         def _on_download(download):
-            # KHÔNG gọi bất kỳ Playwright API nào ở đây!
-            # Chỉ lưu object vào queue để main loop xử lý
-            _download_queue.put(download)
-
+            try:
+                import shutil
+                from pathlib import Path as _P
+                name = download.suggested_filename or "download"
+                url  = (download.url or "")
+                # B1: Lay duoi tu suggested_filename
+                ext = _P(name).suffix.lower()
+                # B2: Doan tu URL neu chua co duoi
+                if not ext:
+                    url_clean = url.split("?")[0].split("#")[0]
+                    url_ext = _P(url_clean).suffix.lower()
+                    if url_ext in (".mp4",".webm",".mov",".avi",".mkv"):
+                        ext = url_ext
+                    elif url_ext in (".jpg",".jpeg",".png",".webp",".gif",".avif"):
+                        ext = url_ext
+                # B3: Doan tu MIME type neu van chua co
+                if not ext:
+                    mime = getattr(download, 'mime_type', '') or ''
+                    if 'video' in mime:   ext = '.mp4'
+                    elif 'jpeg' in mime:  ext = '.jpg'
+                    elif 'png' in mime:   ext = '.png'
+                    elif 'webp' in mime:  ext = '.webp'
+                    elif 'gif' in mime:   ext = '.gif'
+                    elif 'image' in mime: ext = '.jpg'
+                    else:                 ext = '.mp4'
+                stem = _P(name).stem or name
+                save_dir = _P.home() / 'Downloads'
+                save_dir.mkdir(parents=True, exist_ok=True)
+                final_path = save_dir / (stem + ext)
+                counter = 1
+                while final_path.exists():
+                    final_path = save_dir / f"{stem}_{counter}{ext}"
+                    counter += 1
+                # download.path() doi file download xong, tra ve temp path - goi trong handler la OK
+                # shutil.copy2() thuan Python - KHONG dung Playwright API - an toan voi greenlet
+                temp = download.path()
+                if temp:
+                    shutil.copy2(temp, str(final_path))
+                    log(f"[Download] Saved: {final_path.name}")
+                else:
+                    log("[Download] Failed: temp path is None")
+            except Exception as e:
+                log(f"[Download] Error: {e}")
         context.on("download", _on_download)
-        def _on_page_dl(pg):
-            try: pg.on("download", _on_download)
+        def _on_page_dl(page):
+            try: page.on("download", _on_download)
             except: pass
         context.on("page", _on_page_dl)
-
-        def _process_download_queue():
-            # Xu ly download tu dung greenlet (main Playwright thread)
-            import shutil as _shutil
-            from pathlib import Path as _P
-            while not _download_queue.empty():
-                try:
-                    dl = _download_queue.get_nowait()
-                    name = dl.suggested_filename or "download"
-                    url  = dl.url or ""
-                    ext  = _P(name).suffix.lower()
-                    if not ext:
-                        url_clean = url.split("?")[0].split("#")[0]
-                        url_ext = _P(url_clean).suffix.lower()
-                        if url_ext in (".mp4",".webm",".mov",".avi",".mkv",
-                                       ".jpg",".jpeg",".png",".webp",".gif",".avif"):
-                            ext = url_ext
-                    if not ext:
-                        mime = getattr(dl, "mime_type", "") or ""
-                        if "video" in mime:   ext = ".mp4"
-                        elif "jpeg" in mime:  ext = ".jpg"
-                        elif "png"  in mime:  ext = ".png"
-                        elif "webp" in mime:  ext = ".webp"
-                        elif "gif"  in mime:  ext = ".gif"
-                        elif "image" in mime: ext = ".jpg"
-                        else:                 ext = ".mp4"
-                    stem     = _P(name).stem or name
-                    save_dir = _P.home() / "Downloads"
-                    save_dir.mkdir(parents=True, exist_ok=True)
-                    final_path = save_dir / (stem + ext)
-                    counter = 1
-                    while final_path.exists():
-                        final_path = save_dir / f"{stem}_{counter}{ext}"
-                        counter += 1
-                    # Gọi từ main loop greenlet → an toàn 100%
-                    temp = dl.path()
-                    if temp:
-                        _shutil.copy2(temp, str(final_path))
-                        log(f"[Download] OK: {final_path.name}")
-                        try:
-                            import os as _os
-                            _os.unlink(temp)
-                        except: pass
-                    else:
-                        log("[Download] path() returned None")
-                except _queue.Empty:
-                    break
-                except Exception as dl_err:
-                    log(f"[Download] process err: {dl_err}")
-
 
 
         try:
@@ -322,12 +304,6 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
         consecutive_errors = 0
         while True:
             try:
-                # Xử lý download queue từ đúng greenlet
-                try:
-                    _process_download_queue()
-                except Exception:
-                    pass
-
                 try:
                     current_pages = context.pages
                     consecutive_errors = 0  # reset khi lấy pages thành công
