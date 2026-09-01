@@ -167,7 +167,7 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
         context.on("page", _on_page_dl)
 
         def _process_download_queue():
-            """Xử lý download từ đúng greenlet (main Playwright thread)"""
+            # Xu ly download tu dung greenlet (main Playwright thread)
             import shutil as _shutil
             from pathlib import Path as _P
             while not _download_queue.empty():
