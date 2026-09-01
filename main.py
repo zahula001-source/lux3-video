@@ -545,7 +545,8 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
         channel="chrome",
         ignore_default_args=ignore_args,
         args=args,
-        # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)
+        accept_downloads=True,
+        downloads_path=str(Path.home() / "Downloads"),
     )
 
     # Chrome tự xử lý download 100% native - Không chặn, không xử lý bằng Playwright để tránh crash

@@ -129,8 +129,8 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
     lines.append("            headless=False,")
     lines.append('            channel="chrome",')
     lines.append('            ignore_default_args=["--disable-extensions"],')
-    lines.append("            args=args,")
-    lines.append('            # Không dùng accept_downloads=True để Chrome tự xử lý download 100% (tránh crash)')
+    lines.append('            downloads_path=str(Path.home() / "Downloads"),')
+    lines.append('            accept_downloads=True,')
     lines.append("        )")
     code_no_ext = """
         if proxy:
