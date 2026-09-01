@@ -551,72 +551,60 @@ def _open_browser_with_fp(p, profile, ext_path, attempt=1, enable_ext_btn2=False
 
     
     # ── DOWNLOAD HANDLER: Tự động gắn đúng đuôi file khi download ──────────
-    # Vấn đề: Playwright/Chrome đôi khi download file không có đuôi (UUID raw)
-    # Fix: Detect từ URL + suggested_filename + mime-type để gán .mp4 / .jpg / .png
+    # FIX: KHÔNG dùng threading.Thread + save_as() → greenlet crash
+    # ĐÚNG: download.path() (OK từ handler) + shutil.copy2() (thuần Python)
     def _on_download(download):
-        def _save_with_ext():
-            try:
-                import os, time, mimetypes
-                from pathlib import Path
-
-                name = download.suggested_filename or "download"
-                url  = download.url or ""
-
-                # --- Bước 1: Lấy đuôi từ suggested_filename ---
-                ext = Path(name).suffix.lower()  # vd: ".mp4", ".jpg", ""
-
-                # --- Bước 2: Nếu chưa có đuôi, đoán từ URL ---
-                if not ext:
-                    url_path = url.split("?")[0].split("#")[0]
-                    url_ext  = Path(url_path).suffix.lower()
-                    if url_ext in (".mp4", ".webm", ".mov", ".avi", ".mkv"):
-                        ext = url_ext
-                    elif url_ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"):
-                        ext = url_ext
-
-                # --- Bước 3: Đoán từ mime-type nếu vẫn chưa có ---
-                if not ext:
-                    mime = download.mime_type or ""
-                    if "video" in mime:
-                        ext = ".mp4"
-                    elif "jpeg" in mime or "jpg" in mime:
-                        ext = ".jpg"
-                    elif "png" in mime:
-                        ext = ".png"
-                    elif "webp" in mime:
-                        ext = ".webp"
-                    elif "gif" in mime:
-                        ext = ".gif"
-                    elif "image" in mime:
-                        ext = ".jpg"   # fallback cho image/*
-                    else:
-                        ext = ".mp4"   # fallback cuối cùng cho file lạ không rõ loại
-
-                # --- Bước 4: Tạo tên file cuối cùng có đuôi ---
-                stem = Path(name).stem or name  # phần tên không có đuôi
-                final_name = stem + ext
-                save_dir   = Path.home() / "Downloads"
-                save_dir.mkdir(parents=True, exist_ok=True)
-                final_path = save_dir / final_name
-
-                # Tránh ghi đè: nếu file đã tồn tại thì thêm số
-                counter = 1
-                while final_path.exists():
-                    final_path = save_dir / f"{stem}_{counter}{ext}"
-                    counter += 1
-
-                download.save_as(str(final_path))
-                print(f"[Download] Saved: {final_path}")
-
-            except Exception as e:
-                print(f"[Download] Error: {e}")
-
-        import threading
-        threading.Thread(target=_save_with_ext, daemon=True).start()
-
-    def _on_page(page):
         try:
-            page.on("download", _on_download)
+            import shutil
+            name = download.suggested_filename or "download"
+            url  = download.url or ""
+
+            # B1: Lấy đuôi từ suggested_filename
+            ext = Path(name).suffix.lower()
+
+            # B2: Đoán từ URL nếu chưa có đuôi
+            if not ext:
+                url_path = url.split("?")[0].split("#")[0]
+                url_ext  = Path(url_path).suffix.lower()
+                if url_ext in (".mp4", ".webm", ".mov", ".avi", ".mkv"):
+                    ext = url_ext
+                elif url_ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"):
+                    ext = url_ext
+
+            # B3: Đoán từ MIME type nếu vẫn chưa có
+            if not ext:
+                mime = getattr(download, "mime_type", "") or ""
+                if "video" in mime:    ext = ".mp4"
+                elif "jpeg" in mime:   ext = ".jpg"
+                elif "png"  in mime:   ext = ".png"
+                elif "webp" in mime:   ext = ".webp"
+                elif "gif"  in mime:   ext = ".gif"
+                elif "image" in mime:  ext = ".jpg"
+                else:                  ext = ".mp4"
+
+            stem      = Path(name).stem or name
+            save_dir  = Path.home() / "Downloads"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            final_path = save_dir / (stem + ext)
+            counter = 1
+            while final_path.exists():
+                final_path = save_dir / f"{stem}_{counter}{ext}"
+                counter += 1
+
+            # download.path() → đợi download xong, trả về temp path (gọi từ handler OK)
+            # shutil.copy2() → thuần Python, KHÔNG dùng Playwright API → an toàn 100%
+            temp = download.path()
+            if temp:
+                shutil.copy2(temp, str(final_path))
+                print(f"[Download] OK: {final_path.name}")
+            else:
+                print("[Download] Failed: temp path is None")
+        except Exception as e:
+            print(f"[Download] Error: {e}")
+
+    def _on_page(pg):
+        try:
+            pg.on("download", _on_download)
         except:
             pass
 

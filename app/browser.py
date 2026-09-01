@@ -146,54 +146,64 @@ def get_chromium_runner_simple(profile_id, user_data_dir, proxy_dict, fingerprin
 
         log(f"Launched, pages={len(context.pages)}")
         
-        # Download handler: PHẢI gọi save_as() nếu dùng accept_downloads=True
-        # Nếu handler không gọi save_as() thì download bị TREO VÔ HẠN → Chrome crash!
+        # ── DOWNLOAD HANDLER ────────────────────────────────────────────────────
+        # LỖI CŨ: gọi download.save_as() từ threading.Thread → greenlet crash
+        # VÌ: Playwright sync API bị bind vào 1 greenlet duy nhất (main thread)
+        # FIX: dùng download.path() để lấy temp path (OK từ handler) 
+        #       + shutil.copy2() thuần Python để copy sang đúng tên/đuôi
         def _on_download(download):
-            import threading
-            def _do_save():
-                try:
-                    from pathlib import Path as _P
-                    name = download.suggested_filename or "download"
-                    url  = (download.url or "")
-                    # B1: Lấy đuôi từ suggested_filename
-                    ext = _P(name).suffix.lower()
-                    # B2: Đoán từ URL nếu chưa có đuôi
-                    if not ext:
-                        url_clean = url.split("?")[0].split("#")[0]
-                        url_ext = _P(url_clean).suffix.lower()
-                        if url_ext in (".mp4",".webm",".mov",".avi",".mkv"):
-                            ext = url_ext
-                        elif url_ext in (".jpg",".jpeg",".png",".webp",".gif",".avif"):
-                            ext = url_ext
-                    # B3: Đoán từ MIME type nếu vẫn chưa có
-                    if not ext:
-                        mime = getattr(download, 'mime_type', '') or ''
-                        if 'video' in mime:            ext = '.mp4'
-                        elif 'jpeg' in mime:           ext = '.jpg'
-                        elif 'png' in mime:            ext = '.png'
-                        elif 'webp' in mime:           ext = '.webp'
-                        elif 'gif' in mime:            ext = '.gif'
-                        elif 'image' in mime:          ext = '.jpg'
-                        else:                          ext = '.mp4'
-                    stem = _P(name).stem or name
-                    save_dir = _P.home() / 'Downloads'
-                    save_dir.mkdir(parents=True, exist_ok=True)
-                    final_path = save_dir / (stem + ext)
-                    # Tránh ghi đè
-                    counter = 1
-                    while final_path.exists():
-                        final_path = save_dir / f"{stem}_{counter}{ext}"
-                        counter += 1
-                    download.save_as(str(final_path))
-                    log(f"[Download] Saved: {final_path}")
-                except Exception as e:
-                    log(f"[Download] Error: {e}")
-                    try: download.cancel()
-                    except: pass
-            threading.Thread(target=_do_save, daemon=True).start()
+            try:
+                import shutil
+                from pathlib import Path as _P
+                name = download.suggested_filename or "download"
+                url  = download.url or ""
+
+                # B1: Lấy đuôi từ suggested_filename
+                ext = _P(name).suffix.lower()
+
+                # B2: Đoán từ URL nếu chưa có đuôi
+                if not ext:
+                    url_clean = url.split("?")[0].split("#")[0]
+                    url_ext = _P(url_clean).suffix.lower()
+                    if url_ext in (".mp4",".webm",".mov",".avi",".mkv"):
+                        ext = url_ext
+                    elif url_ext in (".jpg",".jpeg",".png",".webp",".gif",".avif"):
+                        ext = url_ext
+
+                # B3: Đoán từ MIME type nếu vẫn chưa có
+                if not ext:
+                    mime = getattr(download, "mime_type", "") or ""
+                    if "video" in mime:   ext = ".mp4"
+                    elif "jpeg" in mime:  ext = ".jpg"
+                    elif "png"  in mime:  ext = ".png"
+                    elif "webp" in mime:  ext = ".webp"
+                    elif "gif"  in mime:  ext = ".gif"
+                    elif "image" in mime: ext = ".jpg"
+                    else:                 ext = ".mp4"
+
+                stem      = _P(name).stem or name
+                save_dir  = _P.home() / "Downloads"
+                save_dir.mkdir(parents=True, exist_ok=True)
+                final_path = save_dir / (stem + ext)
+                counter = 1
+                while final_path.exists():
+                    final_path = save_dir / f"{stem}_{counter}{ext}"
+                    counter += 1
+
+                # download.path() → đợi download xong, trả về temp path (gọi từ handler OK)
+                # shutil.copy2() → thuần Python, KHÔNG dùng Playwright API → an toàn 100%
+                temp = download.path()
+                if temp:
+                    shutil.copy2(temp, str(final_path))
+                    log(f"[Download] OK: {final_path.name}")
+                else:
+                    log("[Download] Failed: temp path is None")
+            except Exception as e:
+                log(f"[Download] Error: {e}")
+
         context.on("download", _on_download)
-        def _on_page_dl(page):
-            try: page.on("download", _on_download)
+        def _on_page_dl(pg):
+            try: pg.on("download", _on_download)
             except: pass
         context.on("page", _on_page_dl)
 
